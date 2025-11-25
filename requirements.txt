@@ -1,0 +1,6 @@
+torch
+sentence_transformers
+pycurl
+openai
+elasticsearch
+cohere
