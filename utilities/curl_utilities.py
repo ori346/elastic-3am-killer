@@ -55,10 +55,7 @@ def curl_get_embedding(model_name:str, input:str | list[str], auth_token:str = N
     c.perform()
     
     response = buffer.getvalue()
-    
     result = response.decode('utf-8')
-    
-    #print(result[0:1000])b
 
     embeddings = json.loads(result)
 
