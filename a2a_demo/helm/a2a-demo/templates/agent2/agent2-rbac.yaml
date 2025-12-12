@@ -1,0 +1,65 @@
+{{- if .Values.agent2.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.agent2.name }}
+  labels:
+    app: {{ .Values.agent2.name }}
+    component: remediate-agent
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.agent2.name }}-cluster-monitoring-view
+  labels:
+    app: {{ .Values.agent2.name }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.agent2.name }}
+  namespace: {{ .Release.Namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.agent2.name }}-deployment-patcher
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.agent2.name }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+rules:
+- apiGroups: ["apps"]
+  resources:
+  - deployments
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: [""]
+  resources:
+  - pods
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.agent2.name }}-deployment-patcher
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.agent2.name }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.agent2.name }}-deployment-patcher
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.agent2.name }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,6 @@
+pydantic
+aiohttp
+a2a-sdk[http-server]
+requests
+fastapi
+uvicorn[standard]

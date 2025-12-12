@@ -1,0 +1,55 @@
+{{- if .Values.agent1.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.agent1.name }}
+  labels:
+    app: {{ .Values.agent1.name }}
+    component: diagnose-agent
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: {{ .Values.agent1.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.agent1.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.agent1.name }}
+        component: diagnose-agent
+    spec:
+      serviceAccountName: {{ .Values.agent1.name }}
+      containers:
+      - name: agent1
+        image: {{ .Values.agent1.image }}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: {{ .Values.agent1.env.port }}
+          name: webhook
+          protocol: TCP
+        env:
+        - name: LLM_ENDPOINT
+          value: "{{ .Values.agent1.env.llmEndpoint }}"
+        - name: PROMETHEUS_URL
+          value: "{{ .Values.agent1.env.prometheusUrl }}"
+        - name: MICROSERVICE_A_URL
+          value: "http://{{ .Values.microserviceA.name }}:{{ .Values.microserviceA.service.port }}"
+        - name: AGENT2_URL
+          value: "http://{{ .Values.agent2.name }}:8080"
+        - name: PORT
+          value: "{{ .Values.agent1.env.port }}"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: webhook
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: webhook
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        resources:
+          {{- toYaml .Values.agent1.resources | nindent 10 }}
+{{- end }}

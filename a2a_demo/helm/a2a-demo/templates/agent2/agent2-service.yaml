@@ -1,0 +1,19 @@
+{{- if .Values.agent2.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.agent2.service.name }}
+  labels:
+    app: {{ .Values.agent2.name }}
+    component: remediate-agent
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  type: {{ .Values.agent2.service.type }}
+  ports:
+  - port: {{ .Values.agent2.service.port }}
+    targetPort: webhook
+    protocol: TCP
+    name: webhook
+  selector:
+    app: {{ .Values.agent2.name }}
+{{- end }}

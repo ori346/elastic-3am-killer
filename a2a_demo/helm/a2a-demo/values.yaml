@@ -1,0 +1,124 @@
+# Default values for a2a-demo
+
+# Global settings
+global:
+  agentUrl: ""  # Set this to your agent URL
+
+# Microservice B (Processing Service)
+microserviceB:
+  enabled: true
+  name: microservice-b
+  replicaCount: 1
+  image: quay.io/rh-ee-ofridman/microservice-b:latest
+  service:
+    type: ClusterIP
+    port: 8080
+  env:
+    port: 8080
+    processingDelay: "0.1"
+  resources:
+    limits:
+      cpu: "25m"      # Intentionally VERY LOW to create bottleneck
+      memory: "128Mi"
+    requests:
+      cpu: "20m"
+      memory: "64Mi"
+  probes:
+    liveness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+
+# Microservice A (Queue Service)
+microserviceA:
+  enabled: true
+  name: microservice-a
+  replicaCount: 1
+  image: quay.io/rh-ee-ofridman/microservice-a:latest
+  service:
+    type: ClusterIP
+    port: 8080
+  env:
+    port: 8080
+    maxQueueSize: 100
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+  probes:
+    liveness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+
+# Client Simulator
+client:
+  enabled: true
+  name: client-simulator
+  replicaCount: 1
+  image: quay.io/rh-ee-ofridman/client-simulator:latest
+  env:
+    requestRate: "2.0"
+
+# Agent 1 (Diagnose Agent)
+agent1:
+  enabled: true
+  name: agent1
+  replicaCount: 1
+  image: quay.io/rh-ee-ofridman/agent1:latest
+  service:
+    name: agent1
+    type: ClusterIP
+    port: 8080
+  env:
+    llmEndpoint: "https://redhataillama-31-8b-instruct-quickstart-llms.apps.ai-dev02.kni.syseng.devcluster.openshift.com"
+    prometheusUrl: "https://thanos-querier.openshift-monitoring.svc:9091"
+    port: 8080
+  resources:
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+
+# Agent 2 (Remediate Agent)
+agent2:
+  enabled: true
+  name: agent2
+  replicaCount: 1
+  image: quay.io/rh-ee-ofridman/agent2:latest
+  service:
+    name: agent2
+    type: ClusterIP
+    port: 8080
+  env:
+    llmEndpoint: "https://redhataillama-31-8b-instruct-quickstart-llms.apps.ai-dev02.kni.syseng.devcluster.openshift.com"
+    prometheusUrl: "https://thanos-querier.openshift-monitoring.svc:9091"
+    port: 8080
+  resources:
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+
+# Prometheus Monitoring
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+  alertRules:
+    enabled: true
+    queueDepthThreshold: 10
+  alertmanager:
+    enabled: true
