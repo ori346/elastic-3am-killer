@@ -1,0 +1,6 @@
+minio:
+  userId: <this is used to set the user id for the minio installation>
+  password: <this is used to set the password for the minio installation>
+
+  # provide the above at the  command line when using helm install:
+  # helm install minio ./minio --set minio.userId=john01,minio.password=minioElastic123
