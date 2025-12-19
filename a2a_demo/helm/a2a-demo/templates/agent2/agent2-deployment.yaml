@@ -1,0 +1,57 @@
+{{- if .Values.agent2.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.agent2.name }}
+  labels:
+    app: {{ .Values.agent2.name }}
+    component: remediate-agent
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: {{ .Values.agent2.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.agent2.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.agent2.name }}
+        component: remediate-agent
+    spec:
+      serviceAccountName: {{ .Values.agent2.name }}
+      containers:
+      - name: agent2
+        image: {{ .Values.agent2.image }}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: {{ .Values.agent2.env.port }}
+          name: webhook
+          protocol: TCP
+        env:
+        - name: LLM_ENDPOINT
+          value: "{{ .Values.agent2.env.llmEndpoint }}"
+        - name: PROMETHEUS_URL
+          value: "{{ .Values.agent2.env.prometheusUrl }}"
+        - name: MICROSERVICE_B_DEPLOYMENT
+          value: "{{ .Values.microserviceB.name }}"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PORT
+          value: "{{ .Values.agent2.env.port }}"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: webhook
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: webhook
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        resources:
+          {{- toYaml .Values.agent2.resources | nindent 10 }}
+{{- end }}
