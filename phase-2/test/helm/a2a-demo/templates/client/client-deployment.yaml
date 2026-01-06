@@ -1,0 +1,39 @@
+{{- if .Values.client.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.client.name }}
+  labels:
+    app: {{ .Values.client.name }}
+    component: client-simulator
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: {{ .Values.client.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.client.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.client.name }}
+        component: client-simulator
+    spec:
+      serviceAccountName: {{ .Values.client.name }}-sa
+      initContainers:
+      - name: wait-for-microservice-b
+        image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          oc wait --for=condition=ready pod -l app={{ .Values.microserviceB.name }} --timeout=300s
+      containers:
+      - name: client
+        image: {{ .Values.client.image }}
+        imagePullPolicy: Always
+        env:
+        - name: MICROSERVICE_A_URL
+          value: "http://{{ .Values.microserviceA.name }}:{{ .Values.microserviceA.service.port }}"
+        - name: REQUEST_RATE
+          value: "{{ .Values.client.env.requestRate }}"
+{{- end }}

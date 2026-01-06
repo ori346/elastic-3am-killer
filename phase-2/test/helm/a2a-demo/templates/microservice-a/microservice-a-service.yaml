@@ -1,0 +1,19 @@
+{{- if .Values.microserviceA.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.microserviceA.name }}
+  labels:
+    app: {{ .Values.microserviceA.name }}
+    component: queue-service
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  type: {{ .Values.microserviceA.service.type }}
+  ports:
+  - port: {{ .Values.microserviceA.service.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: {{ .Values.microserviceA.name }}
+{{- end }}

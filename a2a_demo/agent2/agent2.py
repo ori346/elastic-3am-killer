@@ -36,12 +36,11 @@ class RemediateAgent(BaseModel):
     """Agent 2: Remediates microservice issues by patching deployments based on diagnosis"""
 
     name: str = "RemediateAgent"
-    llm_endpoint: str = Field(
-        default="https://redhataillama-31-8b-instruct-quickstart-llms.apps.ai-dev02.kni.syseng.devcluster.openshift.com"
-    )
+    llm_endpoint: str = Field(default="")
     prometheus_url: str = Field(
         default="https://thanos-querier.openshift-monitoring.svc:9091"
     )
+    model: str = Field(default="llama")
     microservice_a_deployment: str = Field(default="microservice-a")
     microservice_b_deployment: str = Field(default="microservice-b")
     namespace: str = Field(default="a2a-demo")
@@ -236,15 +235,15 @@ This is a distributed system with two microservices:
 2. **Microservice B (Processing Service)**:
    - Receives requests from Microservice A
    - Performs computational work that does not require a lot of memory but is CPU-intensive
-   - Runs in Kubernetes with configured resource limits (CPU/Memory)
+   - Runs in OpenShift with configured resource limits (CPU/Memory)
 
-**Kubernetes Resource Management**:
+**OpenShift Resource Management**:
 - **CPU Limit**: Maximum CPU the pod can use (measured in millicores, e.g., 100m = 0.1 CPU cores, 1000m = 1 full core)
 - **CPU Request**: Guaranteed CPU allocation for the pod
 - **Memory Limit**: Maximum memory the pod can use (e.g., 256Mi, 1Gi)
 - **Memory Request**: Guaranteed memory allocation
 
-When a pod exceeds its CPU limit, Kubernetes throttles it, which can cause performance degradation.
+When a pod exceeds its CPU limit, OpenShift throttles it, which can cause performance degradation.
 When a pod exceeds its memory limit, it may be killed and restarted.
 
 **Typical Resource Values for Reference**:
@@ -283,7 +282,7 @@ Return ONLY the JSON, no other text.
 
         try:
             payload = {
-                "model": "redhataillama-31-8b-instruct",
+                "model": self.model,
                 "messages": [
                     {
                         "role": "system",
@@ -527,7 +526,6 @@ class RemediateAgentExecutor(AgentExecutor):
         # Get configuration from environment
         llm_endpoint = os.environ.get(
             "LLM_ENDPOINT",
-            "https://redhataillama-31-8b-instruct-quickstart-llms.apps.ai-dev02.kni.syseng.devcluster.openshift.com",
         )
         prometheus_url = os.environ.get(
             "PROMETHEUS_URL", "https://thanos-querier.openshift-monitoring.svc:9091"
@@ -620,7 +618,7 @@ def create_agent_card() -> AgentCard:
     """Create A2A AgentCard for RemediateAgent"""
     return AgentCard(
         name="RemediateAgent",
-        description="Applies remediation to Kubernetes deployments based on diagnosis from DiagnoseAgent. Specializes in patching resource limits and scaling issues.",
+        description="Applies remediation to OpenShift deployments based on diagnosis from DiagnoseAgent. Specializes in patching resource limits and scaling issues.",
         version="1.0.0",
         url=f"http://agent2:{os.environ.get('PORT', '8080')}",
         capabilities=AgentCapabilities(
@@ -721,10 +719,10 @@ def main():
             "alert": request.alert_name,
         }
 
-    # Add health endpoint for Kubernetes probes
+    # Add health endpoint for OpenShift probes
     @fastapi_app.get("/health")
     async def health_check():
-        """Health check endpoint for Kubernetes liveness/readiness probes"""
+        """Health check endpoint for OpenShift liveness/readiness probes"""
         return {"status": "healthy", "agent": "RemediateAgent"}
 
     logger.info("📡 A2A REST endpoints available:")

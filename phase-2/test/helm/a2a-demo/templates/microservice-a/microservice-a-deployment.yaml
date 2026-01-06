@@ -1,0 +1,60 @@
+{{- if .Values.microserviceA.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.microserviceA.name }}
+  labels:
+    app: {{ .Values.microserviceA.name }}
+    component: queue-service
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: {{ .Values.microserviceA.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.microserviceA.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.microserviceA.name }}
+        component: queue-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.microserviceA.service.port }}"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: queue-service
+        image: {{ .Values.microserviceA.image }}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: {{ .Values.microserviceA.env.port }}
+          name: http
+          protocol: TCP
+        env:
+        - name: PORT
+          value: "{{ .Values.microserviceA.env.port }}"
+        - name: MICROSERVICE_B_URL
+          value: "http://{{ .Values.microserviceB.name }}:{{ .Values.microserviceB.service.port }}"
+        - name: MAX_QUEUE_SIZE
+          value: "{{ .Values.microserviceA.env.maxQueueSize }}"
+        - name: AGENT_URL
+          value: "{{ .Values.global.agentUrl }}"
+        resources:
+          {{- toYaml .Values.microserviceA.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.microserviceA.env.port }}
+          initialDelaySeconds: {{ .Values.microserviceA.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.microserviceA.probes.liveness.periodSeconds }}
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.microserviceA.env.port }}
+          initialDelaySeconds: {{ .Values.microserviceA.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.microserviceA.probes.readiness.periodSeconds }}
+          timeoutSeconds: 3
+          failureThreshold: 3
+{{- end }}

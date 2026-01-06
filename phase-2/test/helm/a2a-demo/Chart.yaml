@@ -1,0 +1,14 @@
+apiVersion: v2
+name: a2a-demo
+description: Multi-Agent OpenShift Demo - Microservices with Queue and Processing
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - microservices
+  - prometheus
+  - agent
+  - demo
+maintainers:
+  - name: Demo Team
+    email: demo@example.com

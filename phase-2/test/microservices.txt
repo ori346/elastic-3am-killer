@@ -1,0 +1,14 @@
+namespace: integration-test
+**System Architecture & Data Flow**:
+This is a distributed system with two microservices:
+1. **Microservice A (Queue Service)**:
+   - deployment name: microservice-a
+   - Receives requests from clients
+   - Maintains an internal message queue (max size: 100)
+   - Processes queued items by calling Microservice B
+2. **Microservice B (Processing Service)**:
+   - deployment name: microservice-b
+   - Receives requests from Microservice A
+   - Performs CPU-intensive computational work that does not require a lot of memory
+   - Runs in OpenShift with configured resource limits (CPU/Memory)
+FLOW: Clients → microservice-a (queue) → microservice-b (process) and back

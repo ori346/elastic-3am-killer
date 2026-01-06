@@ -112,7 +112,7 @@ def process_queue_worker():
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint for Kubernetes probes"""
+    """Health check endpoint for OpenShift probes"""
     with queue_lock:
         queue_size = len(message_queue)
 

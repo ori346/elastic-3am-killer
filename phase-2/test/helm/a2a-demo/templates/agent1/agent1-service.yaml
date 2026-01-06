@@ -1,0 +1,19 @@
+{{- if .Values.agent1.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.agent1.service.name }}
+  labels:
+    app: {{ .Values.agent1.name }}
+    component: diagnose-agent
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  type: {{ .Values.agent1.service.type }}
+  ports:
+  - port: {{ .Values.agent1.service.port }}
+    targetPort: webhook
+    protocol: TCP
+    name: webhook
+  selector:
+    app: {{ .Values.agent1.name }}
+{{- end }}
