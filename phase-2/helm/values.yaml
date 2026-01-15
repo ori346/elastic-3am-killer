@@ -1,0 +1,49 @@
+image:
+  repository: quay.io/rh-ai-quickstart/elastic-3am-alert-killer
+  tag: latest
+  pullPolicy: Always
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# Shared LLM Configuration (used by all agents unless overridden)
+llm:
+  apiBase: ""
+  apiKey: ""
+  model: ""
+
+# LLM Configuration for Host Agent (optional, overrides shared config)
+hostAgent:
+  llm:
+    apiBase: ""
+    apiKey: ""
+    model: ""
+
+# LLM Configuration for Remediation Agent (optional, overrides shared config)
+remediationAgent:
+  llm:
+    apiBase: ""
+    apiKey: ""
+    model: ""
+  # Maximum number of tool calls allowed during investigation (default: 5)
+  maxTools: 5
+
+# LLM Configuration for Report Maker Agent (optional, overrides shared config)
+reportMakerAgent:
+  llm:
+    apiBase: ""
+    apiKey: ""
+    model: ""
+
+# Microservices info describing your system architecture
+microservicesInfo:
+  content: ""
+
+# Slack webhook URL (optional)
+slack:
+  webhookUrl: ""

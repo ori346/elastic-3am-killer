@@ -1,167 +1,145 @@
-# [INSERT quickstart title here]
+# 3AM Alert Killer
 
-<!-- CONTRIBUTOR TODO: update title ^^
+An intelligent multi-agent system for automated incident remediation in OpenShift environments. The system uses LLM-powered agents to diagnose issues, execute remediation commands, and generate comprehensive reports - so you don't have to wake up at 3 AM.
 
-*replace the H1 title above with your quickstart title*
+## Overview
 
-TITLE requirements:
-	* MAX CHAR: 64 
-	* Industry use case, ie: Protect patient data with LLM guardrails
-
-TITLE will be extracted for publication.
-
--- > 
+The 3AM Alert Killer implements multi-agent architecture where specialized agents collaborate to handle incidents automatically:
 
 
+- **Remediation Agent**: Does executive research about the alert. Collects resources metadata, metrics, and logs to find the cause and create commands that remediate the alert.
+- **Report Agent**: Generates incident reports using the protocol transcript so the engineer can see what has been done quickly and easily.
+- **Host Agent**: Orchestrates the remediation workflow. Designed with A2A protocol so you can use any kind of agent to resolve the issue.
 
-<!-- CONTRIBUTOR TODO: short description 
-
-*ADD a SHORT DESCRIPTION of your use case between H1 title and next section*
-
-SHORT DESCRIPTION requirements:
-	* MAX CHAR: 160
-	* Describe the INDUSTRY use case 
-
-SHORT DESCRIPTION will be extracted for publication.
-
---> 
+The agents work together to receive alerts, diagnose problems, execute fixes, verify resolution, and deliver comprehensive reports to your team.
 
 
-## Table of contents
+### Agents Flow
+1. Host Agent receives alert and asks the remediation agent to analyze and come up with remediation commands.
+2. Remediation agent reads the microservice info. Then, the agent can use tools to collect data about the cluster state. Eventually when it identifies the problem, it generates remediation commands with a short explanation and hands them off to the host agent.
+3. The host agent runs the commands and stores the commands execution results. If the commands execute gracefully the agent verifies that the alert resolves and asks the report agent to generate a report.
+4. The report agent collects all the relevant data from the transcript and generates a short and concise report with relevant data for the engineer.
+5. The agent sends the report via Slack and marks the protocol as complete. 
 
-<!-- Table of contents is optional, but recommended. 
+## Quick Start
 
-REMEMBER: to remove this section if you don't use a TOC.
+### Phase 2: Production System
+Deploy the full multi-agent system:
+Create `values-file.yaml` with the following:
 
--->
+```yaml
+# Shared LLM Configuration (used by all agents)
+llm:
+  apiBase: "https://your-model-endpoint/v1"
+  apiKey: "your api key"
+  model: "model name"
 
-## Detailed description
+# Optional: Override for specific agents (leave empty to use shared config)
+hostAgent:
+  llm:
+    apiBase: ""
+    apiKey: ""
+    model: ""
 
-<!-- CONTRIBUTOR TODO: add detailed description.
+remediationAgent:
+  llm:
+    apiBase: ""
+    apiKey: ""
+    model: ""
 
-This section is required. Describe the quickstart use case in more detail. 
+reportMakerAgent:
+  llm:
+    apiBase: ""
+    apiKey: ""
+    model: ""
 
-This is not a technical description. This is about the workload. 
+# Microservices info describing your system architecture
+microservicesInfo:
+  content: |
+    Write a SHORT explanation about the microservices and the system.
 
-Technical description comes later.
+# Slack webhook URL (optional)
+slack:
+  webhookUrl: ""
+```
 
--->
-
-
-### See it in action 
-
-<!-- 
-
-*This section is optional but recommended*
-
-Arcades are a great way to showcase your quickstart before installation.
-
--->
-
-### Architecture diagrams
-
-<!-- CONTRIBUTOR TODO: add architecture diagram. 
-
-*Section is required. Put images in `docs/images` folder* 
-
---> 
+When you set all the above we're ready to deploy the agents system
+```bash
+cd phase-2
+NAMESPACE=<namespace> ./deploy.sh
+```
 
 
 ## Requirements
 
+### Software
+- **OpenShift** with admin permissions (for production deployment)
+- **LLM endpoint** with OpenAI-compatible API
 
-### Minimum hardware requirements 
+### Optional
+- **Slack Webhook url** (for report notifications)
+- **Prometheus & Alertmanager** (for monitoring integration)
 
-<!-- CONTRIBUTOR TODO: add minimum hardware requirements
+### Permissions
+- **Namespace admin** permissions for deployment
+- **RBAC** for pod/deployment operations (scale, patch, rollout)
 
-*Section is required.* 
+## Architecture
 
-Be as specific as possible. DON'T say "GPU". Be specific.
-
-List minimum hardware requirements.
-
---> 
-
-### Minimum software requirements
-
-<!-- CONTRIBUTOR TODO: add minimum software requirements
-
-*Section is required.*
-
-Be specific. Don't say "OpenShift AI". Instead, tested with OpenShift AI 2.22
-
-If you know it only works in a specific version, say so. 
-
--->
-
-### Required user permissions
-
-<!-- CONTRIBUTOR TODO: add user permissions
-
-*Section is required. Describe the permissions the user will need. Cluster
-admin? Regular user?*
-
---> 
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       Host Agent (A2A)                      │
+│  - Receives alerts via A2A protocol                         |
+|  - Orchestrates remediation workflow                        │
+│  - Delivers reports to Slack                                │
+│                                                             │
+│  ┌──────────────────────┐  ┌──────────────────────┐         │
+│  │ Remediation Agent    │  │ Report Agent         │         │
+│  │ - Generate commands  │  │ - Generate reports   │         │
+│  │ - Validate allowlist │  │ - Format for Slack   │         │
+│  └──────────────────────┘  └──────────────────────┘         │
+└─────────────────────────────────────────────────────────────┘
+         ▲                                    │
+         │   A2A                              │ Reports
+         │ Protocol                           |
+         ▼                                    ▼
+┌────────────────┐                    ┌──────────────┐
+│  Client Agent  │                    │    Slack     │
+└────────────────┘                    └──────────────┘
+```
 
 
-## Deploy
+## Contributing
 
-<!-- CONTRIBUTOR TODO: add installation instructions 
+We welcome contributions! To test your changes locally:
 
-*Section is required. Include the explicit steps needed to deploy your
-quickstart. 
+### Local Testing Setup
 
-Assume user will follow your instructions EXACTLY. 
+1. **Deploy the test environment** (includes test microservices and client agent)
+```bash
+cd phase-2/test
+NAMESPACE=<tests-name-space> ./deploy.sh
+```
 
-If screenshots are included, remember to put them in the
-`docs/images` folder.*
+2. **Set environment variables** for the agents
+```bash
+export API_BASE=https://<your-model-endpoint>/v1
+export API_KEY=<api-key> # or $(oc whoami -t)
+export MODEL=<model-name>
+```
 
--->
+3. **Start the agents locally** (no need to build or push images)
+```bash
+cd ../app
+uv init # First time only
+uv sync
+uv uvicorn main:app --port 5001
+```
 
-### Delete
+4. **Trigger a test alert** to simulate the client agent diagnosis
+```bash
+cd ../test
+python send_diagnosis_to_host.py
+```
 
-<!-- CONTRIBUTOR TODO: add uninstall instructions
-
-*Section required. Include explicit steps to cleanup quickstart.*
-
-Some users may need to reclaim space by removing this quickstart. Make it easy.
-
--->
-
-## References 
-
-<!-- 
-
-*Section optional.* Remember to remove if do not use.
-
-Include links to supporting information, documentation, or learning materials.
-
---> 
-
-## Technical details
-
-<!-- 
-
-*Section is optional.* 
-
-Here is your chance to share technical details. 
-
-Welcome to add sections as needed. Keep additions as structured and consistent as possible.
-
--->
-
-## Tags
-
-<!-- CONTRIBUTOR TODO: add metadata and tags for publication
-
-TAG requirements: 
-	* Title: max char: 64, describes quickstart (match H1 heading) 
-	* Description: max char: 160, match SHORT DESCRIPTION above
-	* Industry: target industry, ie. Healthcare OR Financial Services
-	* Product: list primary product, ie. OpenShift AI OR OpenShift OR RHEL 
-	* Use case: use case descriptor, ie. security, automation, 
-	* Contributor org: defaults to Red Hat unless partner or community
-	
-Additional MIST tags, populated by web team.
-
--->
+After testing your changes, submit a pull request with a clear description of your improvements.

@@ -1,42 +1,49 @@
-import pycurl
 import json
 from io import BytesIO
+
+import pycurl
 
 c = None
 endpoint = None
 
-def curl_setup(endpoint:str) -> None:
+
+def curl_setup(endpoint: str) -> None:
     global c
     c = pycurl.Curl()
     c.setopt(c.URL, endpoint)
+
 
 def curl_close() -> None:
     if c is not None:
         c.close()
 
-def curl_get_embedding(model_name:str, input:str | list[str], auth_token:str = None, ignore_ssl_verification:bool = False) -> list[float]:
+
+def curl_get_embedding(
+    model_name: str,
+    input: str | list[str],
+    auth_token: str = None,
+    ignore_ssl_verification: bool = False,
+) -> list[float]:
 
     if isinstance(input, str):
         input_as_list = [input]
     elif isinstance(input, list):
         input_as_list = input
     else:
-        raise TypeError("Input must be a string or list of strings that represent raw input to be encoded.")
-        
-    data = {
-     "model": model_name,
-     "input": input_as_list,
-     "encoding_format":"float"
-    }
+        raise TypeError(
+            "Input must be a string or list of strings that represent raw input to be encoded."
+        )
+
+    data = {"model": model_name, "input": input_as_list, "encoding_format": "float"}
 
     post_data = json.dumps(data)
-    headers = ['Content-Type: application/json']
+    headers = ["Content-Type: application/json"]
     buffer = BytesIO()
 
     # Add the Authorization Bearer token header
     # The format is 'Authorization: Bearer <TOKEN>'
     if auth_token is not None:
-        auth_header = f'Authorization: Bearer {auth_token}'
+        auth_header = f"Authorization: Bearer {auth_token}"
         headers.append(auth_header)
 
     c.setopt(c.POSTFIELDS, post_data)
@@ -49,19 +56,19 @@ def curl_get_embedding(model_name:str, input:str | list[str], auth_token:str = N
 
     # Add the Authorization Bearer token header
     # The format is 'Authorization: Bearer <TOKEN>'
-    auth_header = f'Authorization: Bearer {auth_token}'
+    auth_header = f"Authorization: Bearer {auth_token}"
     headers.append(auth_header)
-    
+
     c.perform()
-    
+
     response = buffer.getvalue()
-    result = response.decode('utf-8')
+    result = response.decode("utf-8")
 
     embeddings = json.loads(result)
 
     result = list()
 
-    for e in embeddings['data']:
-        result.append(e['embedding'])
-    
+    for e in embeddings["data"]:
+        result.append(e["embedding"])
+
     return result

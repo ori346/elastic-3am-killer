@@ -82,7 +82,7 @@ def simulate_cpu_work():
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint for Kubernetes probes"""
+    """Health check endpoint for OpenShift probes"""
     return (
         jsonify(
             {

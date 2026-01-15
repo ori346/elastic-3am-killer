@@ -1,0 +1,29 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1beta1
+kind: AlertmanagerConfig
+metadata:
+  name: {{ .Values.agent1.name }}-webhook
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.agent1.name }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  route:
+    receiver: 'agent1-webhook'
+    groupBy: ['alertname']
+    groupWait: 10s
+    groupInterval: 10s
+    repeatInterval: 5m
+    matchers:
+    - name: alertname
+      value: HighQueueDepth
+      matchType: "="
+
+  receivers:
+  - name: 'agent1-webhook'
+    webhookConfigs:
+    - url: 'http://{{ .Values.agent1.service.name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agent1.service.port }}/webhook'
+      sendResolved: true
+      httpConfig:
+        followRedirects: true
+{{- end }}

@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-sa
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 5001
+          envFrom:
+            - secretRef:
+                name: {{ .Release.Name }}-llm
+          env:
+            - name: UV_CACHE_DIR
+              value: /app/.cache/uv
+            - name: MAX_TOOLS
+              value: "{{ .Values.remediationAgent.maxTools }}"
+            - name: AGENT_HOST
+              value: "{{ .Release.Name }}.{{ .Release.Namespace }}.svc"
+            - name: AGENT_PORT
+              value: "5001"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

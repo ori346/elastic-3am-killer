@@ -1,0 +1,16 @@
+# Python
+*__pycache__*
+*.pyc
+.venv/
+venv/
+*/.venv
+*.venv-pip*
+a2a_simple
+.claude/
+.vscode
+*venv*
+phase-2-old/
+start-local.sh
+phase-2/values-file.yaml
+uv.lock
+microservices.txt

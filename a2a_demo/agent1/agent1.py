@@ -1,17 +1,31 @@
 import asyncio
+import json
 import logging
 import os
+import re
 import ssl
+import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 import aiohttp
+import httpx
 import uvicorn
+from a2a.client import ClientConfig, ClientFactory
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.apps import A2ARESTFastAPIApplication
 from a2a.server.events.event_queue import EventQueue
 from a2a.server.request_handlers import RESTHandler
-from a2a.types import AgentCapabilities, AgentCard, AgentProvider, AgentSkill
+from a2a.types import (
+    AgentCapabilities,
+    AgentCard,
+    AgentProvider,
+    AgentSkill,
+    DataPart,
+    Message,
+    Role,
+    TextPart,
+)
 from fastapi import BackgroundTasks
 from pydantic import BaseModel, Field
 
@@ -23,13 +37,31 @@ logger = logging.getLogger(__name__)
 
 LLM_ENDPOINT = os.environ.get(
     "LLM_ENDPOINT",
-    "https://redhataillama-31-8b-instruct-quickstart-llms.apps.ai-dev02.kni.syseng.devcluster.openshift.com",
 )
+LLM_TOKEN = os.environ.get("LLM_TOKEN", "")  # Optional bearer token for LLM API
+LLM_MODEL = os.environ.get("LLM_MODEL")  # Model name for LLM API
 PROMETHEUS_URL = os.environ.get(
     "PROMETHEUS_URL", "https://thanos-querier.openshift-monitoring.svc:9091"
 )
 MICROSERVICE_A_URL = os.environ.get("MICROSERVICE_A_URL", "http://microservice-a:8080")
-AGENT2_URL = os.environ.get("AGENT2_URL", "http://agent2:8080")
+REMEDIATION_AGENT_URL = os.environ.get(
+    "REMEDIATION_AGENT_URL", os.environ.get("AGENT2_URL", "http://agent2:8080")
+)
+
+MICROSERVICES_INFO = """namespace: integration-test
+**System Architecture & Data Flow**:
+This is a distributed system with two microservices:
+1. **Microservice A (Queue Service)**:
+   - deployment name: microservice-a
+   - Receives requests from clients
+   - Maintains an internal message queue (max size: 100)
+   - Processes queued items by calling Microservice B
+2. **Microservice B (Processing Service)**:
+   - deployment name: microservice-b
+   - Receives requests from Microservice A
+   - Performs CPU-intensive computational work that does not require a lot of memory
+   - Runs in OpenShift with configured resource limits (CPU/Memory)
+FLOW: Clients → microservice-a (queue) → microservice-b (process) and back"""
 
 
 class DiagnosticData(BaseModel):
@@ -56,9 +88,11 @@ class DiagnoseAgent(BaseModel):
 
     name: str = "DiagnoseAgent"
     llm_endpoint: str = Field(default=LLM_ENDPOINT)
+    llm_token: str = Field(default=LLM_TOKEN)
+    llm_model: str = Field(default=LLM_MODEL)
     prometheus_url: str = Field(default=PROMETHEUS_URL)
     microservice_a_url: str = Field(default=MICROSERVICE_A_URL)
-    agent2_url: str = Field(default=AGENT2_URL)
+    remediation_agent_url: str = Field(default=REMEDIATION_AGENT_URL)
 
     class Config:
         arbitrary_types_allowed = True
@@ -167,12 +201,20 @@ class DiagnoseAgent(BaseModel):
         self, alert_name: str, alert_labels: Dict[str, str] = None
     ) -> DiagnosticData:
         """Collect all relevant diagnostic data based on the alert"""
-        logger.info(f"📊 Collecting diagnostic data for alert: {alert_name}...")
+        logger.info("=" * 80)
+        logger.info("📊 COLLECTING DIAGNOSTIC DATA")
+        logger.info("=" * 80)
+        logger.info(f"Alert Name: {alert_name}")
+        logger.info(f"Alert Labels: {alert_labels}")
 
         if alert_labels is None:
             alert_labels = {}
 
-        # Collect data in parallel
+        logger.info("🔄 Gathering data from multiple sources in parallel...")
+        logger.info("- Microservice A queue status")
+        logger.info("- Microservice A metrics")
+        logger.info("- Prometheus queue depth query")
+
         queue_status, metrics, queue_depth_results = await asyncio.gather(
             self.get_microservice_a_status(),
             self.get_microservice_a_metrics(),
@@ -182,18 +224,27 @@ class DiagnoseAgent(BaseModel):
 
         # Handle exceptions
         if isinstance(queue_status, Exception):
-            logger.error(f"Error collecting queue status: {queue_status}")
+            logger.error(f"❌ Error collecting queue status: {queue_status}")
             queue_status = {}
+        else:
+            logger.info(f"✓ Queue status collected: {queue_status}")
+
         if isinstance(metrics, Exception):
-            logger.error(f"Error collecting metrics: {metrics}")
+            logger.error(f"❌ Error collecting metrics: {metrics}")
             metrics = {}
+        else:
+            logger.info(f"✓ Metrics collected: {list(metrics.keys())}")
+
         if isinstance(queue_depth_results, Exception):
-            logger.error(f"Error querying queue depth: {queue_depth_results}")
+            logger.error(f"❌ Error querying queue depth: {queue_depth_results}")
             queue_depth_results = []
+        else:
+            logger.info(f"✓ Queue depth results: {len(queue_depth_results)} items")
 
         queue_depth = None
         if queue_depth_results and len(queue_depth_results) > 0:
             queue_depth = float(queue_depth_results[0]["value"][1])
+            logger.info(f"📈 Current queue depth: {queue_depth}")
 
         # Collect Prometheus queries - different based on alert type
         prometheus_queries = {}
@@ -205,12 +256,25 @@ class DiagnoseAgent(BaseModel):
             "processing_errors_rate": "rate(queue_service_processing_errors_total[5m])",
         }
 
-        # Agent1 can ONLY query metrics from Microservice A
-        # It cannot access Microservice B metrics or deployment details
+        logger.info("🔄 Querying Prometheus for additional metrics...")
         for name, query in common_queries.items():
+            logger.info(f"- Running query '{name}': {query}")
             results = await self.query_prometheus(query)
             if results:
                 prometheus_queries[name] = results
+                logger.info(f"✓ Got {len(results)} results")
+            else:
+                logger.warning(f"⚠ No results for query '{name}'")
+
+        logger.info("=" * 80)
+        logger.info("✅ DIAGNOSTIC DATA COLLECTION COMPLETE")
+        logger.info("=" * 80)
+        logger.info(f"Collected {len(prometheus_queries)} Prometheus metrics")
+        logger.info(f"Queue depth: {queue_depth}")
+        logger.info(
+            f"Queue status keys: {list(queue_status.keys()) if queue_status else 'None'}"
+        )
+        logger.info(f"Metrics keys: {list(metrics.keys()) if metrics else 'None'}")
 
         return DiagnosticData(
             timestamp=datetime.utcnow().isoformat(),
@@ -282,8 +346,7 @@ class DiagnoseAgent(BaseModel):
         affected_service = alert_labels.get("service", "unknown")
         severity = alert_labels.get("severity", "unknown")
 
-        context = f"""
-I am Agent 1, analyzing a microservice performance issue in an OpenShift cluster.
+        context = f"""I am Agent 1, analyzing a microservice performance issue in an OpenShift cluster.
 
 **Alert**: {diagnostic_data.alert_name} (Severity: {severity})
 **Description**: {alert_description}
@@ -291,23 +354,7 @@ I am Agent 1, analyzing a microservice performance issue in an OpenShift cluster
 
 {chr(10).join(metrics_summary)}
 
-**System Architecture & Data Flow**:
-This is a distributed system with the following components:
-
-1. **Client Simulator**:
-   - Sends HTTP requests to Microservice A at a continuous rate
-
-2. **Microservice A (Queue Service)**:
-   - Receives incoming requests from clients
-   - Maintains an internal message queue (max size: 100)
-   - Processes queued items by calling Microservice B
-   - Exposes metrics: queue_depth, request rates, latency to Microservice B
-
-3. **Microservice B (Processing Service)**:
-   - Receives requests from Microservice A
-   - Performs computational work
-   - Runs in Kubernetes with configured resource limits (CPU/Memory)
-   - I CANNOT access Microservice B's metrics or deployment details
+{MICROSERVICES_INFO}
 
 **My Access Limitations (Agent 1)**:
 - ✅ I CAN access: Microservice A metrics, queue status, and latency to Microservice B
@@ -324,18 +371,17 @@ This is a distributed system with the following components:
 Based on the metrics I collected from Microservice A, determine:
 1. What is the root cause of this performance issue?
 2. Is the problem in Microservice A or Microservice B?
-3. If you suspect that one of the Microservices is the bottleneck, clearly state that in which Microsevice do you suspect that is the probelm Agent 2 needs to investigate Microservices resources.
+3. If you suspect that one of the Microservices is the bottleneck, clearly state in which Microservice you suspect the problem exists so the Remediation Agent can investigate Microservices resources.
 
-Provide a clear diagnosis that Agent 2 can use to remediate the issue. Agent 2 has access to both microservices' deployment details and resource metrics.
-"""
+Provide a clear diagnosis that the Remediation Agent can use to remediate the issue. The Remediation Agent has access to both microservices' deployment details and resource metrics."""
 
         try:
             payload = {
-                "model": "redhataillama-31-8b-instruct",
+                "model": self.llm_model,
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are Agent 1, an expert microservices troubleshooting assistant. You can only access Microservice A's metrics. Analyze the data and identify if the problem is in Microservice A or B based on queue depth and latency metrics. Provide a clear diagnosis for Agent 2 to act upon.",
+                        "content": "You are Agent 1, an expert microservices troubleshooting assistant. You can only access Microservice A's metrics. Analyze the data and identify if the problem is in Microservice A or B based on queue depth and latency metrics. Provide a clear diagnosis for the Remediation Agent to act upon.",
                     },
                     {"role": "user", "content": context},
                 ],
@@ -344,71 +390,164 @@ Provide a clear diagnosis that Agent 2 can use to remediate the issue. Agent 2 h
                 "max_tokens": 400,
             }
 
-            logger.info(f"Sending request to LLM at {self.llm_endpoint}")
+            llm_url = f"{self.llm_endpoint}/chat/completions"
+            logger.info("=" * 80)
+            logger.info("🤖 CALLING LLM API")
+            logger.info("=" * 80)
+            logger.info(f"📍 URL: {llm_url}")
+            logger.info(f"🤖 Model: {self.llm_model}")
+            logger.info(
+                f"🔐 Token: {'✓ SET (' + self.llm_token[:20] + '...)' if self.llm_token else '✗ NOT SET'}"
+            )
+            logger.info(f"📦 Payload keys: {list(payload.keys())}")
+            logger.info(f"📨 Messages count: {len(payload['messages'])}")
+            logger.info("=" * 80)
+
+            # Prepare headers with optional bearer token
+            headers = {"Content-Type": "application/json"}
+            if self.llm_token:
+                headers["Authorization"] = f"Bearer {self.llm_token}"
+                logger.info("✓ Authorization header added")
+
+            logger.info(f"📡 Headers: {list(headers.keys())}")
 
             async with aiohttp.ClientSession() as session:
+                logger.info("🔄 Sending POST request to LLM...")
                 async with session.post(
-                    f"{self.llm_endpoint}/v1/chat/completions",
-                    headers={"Content-Type": "application/json"},
+                    llm_url,
+                    headers=headers,
                     json=payload,
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
-                    response.raise_for_status()
+                    logger.info(f"📥 Response status: {response.status}")
+                    logger.info(f"📥 Response headers: {dict(response.headers)}")
+
+                    if response.status != 200:
+                        error_body = await response.text()
+                        logger.error(f"❌ LLM API returned status {response.status}")
+                        logger.error(f"❌ Error body: {error_body}")
+                        response.raise_for_status()
+
                     result = await response.json()
+                    logger.info(
+                        f"✓ Received JSON response with keys: {list(result.keys())}"
+                    )
 
                     if "choices" in result and len(result["choices"]) > 0:
                         diagnosis = result["choices"][0]["message"]["content"]
+                        # Remove redundant newlines - keep only single newlines between lines
+                        diagnosis = re.sub(r"\n\s*\n+", "\n", diagnosis)
+                        diagnosis = diagnosis.strip()
+                        logger.info("=" * 80)
+                        logger.info("✅ LLM API CALL SUCCESSFUL")
+                        logger.info("=" * 80)
+                        logger.info(f"📝 Diagnosis length: {len(diagnosis)} characters")
                         return diagnosis
                     else:
-                        logger.error(f"Unexpected LLM response format: {result}")
+                        logger.error(f"❌ Unexpected LLM response format: {result}")
                         return None
 
+        except aiohttp.ClientResponseError as e:
+            logger.error("=" * 80)
+            logger.error("❌ LLM API CLIENT ERROR")
+            logger.error("=" * 80)
+            logger.error(f"Status: {e.status}")
+            logger.error(f"Message: {e.message}")
+            logger.error(f"URL: {e.request_info.url if e.request_info else 'unknown'}")
+            return None
+        except asyncio.TimeoutError:
+            logger.error("=" * 80)
+            logger.error("❌ LLM API TIMEOUT ERROR")
+            logger.error("=" * 80)
+            logger.error("The LLM API did not respond within 30 seconds")
+            return None
         except Exception as e:
-            logger.error(f"Error analyzing with LLM: {str(e)}")
+            logger.error("=" * 80)
+            logger.error("❌ LLM API UNEXPECTED ERROR")
+            logger.error("=" * 80)
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error message: {str(e)}")
+            import traceback
+
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
             return None
 
-    async def call_agent2(
+    async def call_remediation_agent(
         self, diagnosis: str, alert_name: str, alert_labels: Dict[str, str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Trigger Agent 2 for remediation via webhook"""
-        logger.info("📤 Calling Agent 2 webhook for remediation...")
-        logger.info("💡 Agent 2 will determine and apply appropriate remediation")
+        """Trigger Remediation Agent for remediation via A2A protocol"""
+        logger.info("📤 Calling Remediation Agent via A2A protocol...")
+        logger.info("💡 Remediation Agent will remediate the issue")
 
         if alert_labels is None:
             alert_labels = {}
 
         try:
-            # Prepare payload for Agent 2
-            payload = {
-                "diagnosis": diagnosis,
-                "alert_name": alert_name,
-                "alert_labels": alert_labels,
-                "diagnostic_data": {},
-            }
+            async with httpx.AsyncClient(timeout=600.0) as http_client:
+                # Get Remediation Agent card
+                logger.info("Fetching Remediation Agent card...")
+                card_response = await http_client.get(
+                    f"{self.remediation_agent_url}/.well-known/agent-card.json"
+                )
+                agent_card_data = card_response.json()
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.agent2_url}/remediate",
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        logger.info(
-                            f"✅ Agent 2 acknowledged remediation request: {result.get('message')}"
-                        )
-                        return result
-                    else:
-                        error_text = await response.text()
-                        logger.error(
-                            f"❌ Agent 2 returned error {response.status}: {error_text}"
-                        )
-                        return {
-                            "triggered": False,
-                            "error": f"HTTP {response.status}: {error_text}",
-                        }
+                agent_card = AgentCard.model_validate(agent_card_data)
+                logger.info(f"Remediation Agent: {agent_card.name}")
+                logger.info(f"Skills: {[skill.name for skill in agent_card.skills]}")
+
+                # Create A2A client
+                config = ClientConfig(httpx_client=http_client)
+                factory = ClientFactory(config=config)
+                client = factory.create(card=agent_card)
+
+                diagnosis_message = f"""**Alert**: {alert_name} (Severity: {alert_labels.get('severity', 'unknown')})
+**Affected Service**: {alert_labels.get('service', 'unknown')}
+**Agent 1 Diagnosis:**
+{diagnosis}"""
+
+                logger.info("Sending diagnosis to Remediation Agent...")
+
+                message = Message(
+                    message_id=str(uuid.uuid4()),
+                    role=Role.user,
+                    parts=[
+                        TextPart(text=diagnosis_message),
+                        TextPart(text=MICROSERVICES_INFO),
+                    ],
+                )
+
+                # Process response
+                logger.info("Waiting for Remediation Agent response...")
+                result_text = ""
+                result_data = None
+                async for event in client.send_message(message):
+                    if isinstance(event, Message):
+                        for part in event.parts:
+                            if isinstance(part.root, DataPart):
+                                result_text += json.dumps(part.root.data, indent=2)
+
+                logger.info("=" * 80)
+                logger.info("REMEDIATION AGENT RESPONSE:")
+                logger.info("=" * 80)
+                if result_text:
+                    logger.info(result_text)
+                if result_data:
+                    logger.info("Report received as DataPart:")
+                    logger.info(result_data)
+                logger.info("=" * 80)
+
+                return {
+                    "triggered": True,
+                    "message": "Remediation Agent processing via A2A",
+                    "response": result_text,
+                    "report": result_data,
+                }
+
         except Exception as e:
-            logger.error(f"❌ Error calling Agent 2: {str(e)}")
+            logger.error(f"❌ Error calling Remediation Agent via A2A: {str(e)}")
+            import traceback
+
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
             return {"triggered": False, "error": str(e)}
 
     async def diagnose_alert(self, alert_input: AlertInput) -> Dict[str, Any]:
@@ -437,10 +576,10 @@ Provide a clear diagnosis that Agent 2 can use to remediate the issue. Agent 2 h
         else:
             logger.error("❌ Failed to get diagnosis from LLM")
 
-        # Step 3: Call Agent 2 for remediation
-        agent2_result = None
+        # Step 3: Call Remediation Agent for remediation
+        remediation_result = None
         if diagnosis:
-            agent2_result = await self.call_agent2(
+            remediation_result = await self.call_remediation_agent(
                 diagnosis, alert_input.alert_name, alert_input.alert_labels
             )
 
@@ -451,13 +590,13 @@ Provide a clear diagnosis that Agent 2 can use to remediate the issue. Agent 2 h
             "diagnostic_data": diagnostic_data.model_dump(),
             "diagnosis": diagnosis,
             "status": "success" if diagnosis else "failed",
-            "next_step": "Agent 2 will apply appropriate remediation based on the diagnosis",
-            "agent2_response": agent2_result,
+            "next_step": "Remediation Agent will apply appropriate remediation based on the diagnosis",
+            "remediation_response": remediation_result,
         }
 
-        if agent2_result:
+        if remediation_result:
             logger.info("=" * 80)
-            logger.info("🔧 AGENT 2 REMEDIATION TRIGGERED")
+            logger.info("🔧 REMEDIATION AGENT TRIGGERED")
             logger.info("=" * 80)
 
         return result
@@ -470,9 +609,11 @@ class DiagnoseAgentExecutor(AgentExecutor):
         """Initialize the executor with the agent"""
         self.agent = DiagnoseAgent(
             llm_endpoint=LLM_ENDPOINT,
+            llm_token=LLM_TOKEN,
+            llm_model=LLM_MODEL,
             prometheus_url=PROMETHEUS_URL,
             microservice_a_url=MICROSERVICE_A_URL,
-            agent2_url=AGENT2_URL,
+            remediation_agent_url=REMEDIATION_AGENT_URL,
         )
         self._cancelled = False
 
@@ -560,12 +701,17 @@ def main():
     """Main entry point - starts A2A REST FastAPI server with custom webhook"""
     port = int(os.environ.get("PORT", "8080"))
 
-    logger.info("🚀 Starting DiagnoseAgent A2A Server...")
-    logger.info(f"  LLM Endpoint: {LLM_ENDPOINT}")
-    logger.info(f"  Prometheus URL: {PROMETHEUS_URL}")
-    logger.info(f"  Microservice A URL: {MICROSERVICE_A_URL}")
-    logger.info(f"  Agent2 URL: {AGENT2_URL}")
-    logger.info(f"  Port: {port}")
+    logger.info("=" * 80)
+    logger.info("🚀 Starting DiagnoseAgent A2A Server")
+    logger.info("=" * 80)
+    logger.info(f"LLM Endpoint: {LLM_ENDPOINT}")
+    logger.info(f"LLM Token: {'✓ SET' if LLM_TOKEN else '✗ NOT SET'}")
+    logger.info(f"LLM Model: {LLM_MODEL}")
+    logger.info(f"Prometheus URL: {PROMETHEUS_URL}")
+    logger.info(f"Microservice A URL: {MICROSERVICE_A_URL}")
+    logger.info(f"Remediation Agent URL: {REMEDIATION_AGENT_URL}")
+    logger.info(f"Port: {port}")
+    logger.info("=" * 80)
 
     # Create executor
     executor = DiagnoseAgentExecutor()
@@ -604,17 +750,30 @@ def main():
         Receive alerts from Alertmanager webhook
         This is a custom endpoint outside the A2A protocol for receiving Prometheus alerts
         """
-        logger.info(
-            f"📥 Webhook received: status={webhook_data.status}, alerts={len(webhook_data.alerts)}"
-        )
+        logger.info("=" * 80)
+        logger.info("📥 WEBHOOK RECEIVED")
+        logger.info("=" * 80)
+        logger.info(f"Status: {webhook_data.status}")
+        logger.info(f"Alerts count: {len(webhook_data.alerts)}")
+        logger.info(f"Group labels: {webhook_data.groupLabels}")
+        logger.info(f"Common labels: {webhook_data.commonLabels}")
+        logger.info(f"Common annotations: {webhook_data.commonAnnotations}")
 
         # Process firing alerts only, ignore resolved alerts
         if webhook_data.status == "firing" and webhook_data.alerts:
+            logger.info(f"🔥 Processing {len(webhook_data.alerts)} firing alerts...")
             for alert in webhook_data.alerts:
                 if alert.get("status") == "firing":
                     alert_name = alert.get("labels", {}).get("alertname", "Unknown")
                     alert_labels = alert.get("labels", {})
                     alert_annotations = alert.get("annotations", {})
+
+                    logger.info("─" * 80)
+                    logger.info("🚨 Alert Details:")
+                    logger.info(f"Name: {alert_name}")
+                    logger.info(f"Labels: {alert_labels}")
+                    logger.info(f"Annotations: {alert_annotations}")
+                    logger.info("─" * 80)
 
                     # Create alert input
                     alert_input = AlertInput(
@@ -626,17 +785,31 @@ def main():
                     # Handle alert in background
                     async def process_alert():
                         try:
-                            logger.warning(f"🚨 Processing alert: {alert_name}")
+                            logger.info("=" * 80)
+                            logger.warning(f"🚨 PROCESSING ALERT: {alert_name}")
+                            logger.info("=" * 80)
                             result = await executor.agent.diagnose_alert(alert_input)
                             if result["status"] == "success":
-                                logger.info("✅ Diagnosis complete")
+                                logger.info("=" * 80)
+                                logger.info("✅ ALERT PROCESSING COMPLETE - SUCCESS")
+                                logger.info("=" * 80)
                             else:
-                                logger.error("❌ Diagnosis failed")
+                                logger.error("=" * 80)
+                                logger.error("❌ ALERT PROCESSING COMPLETE - FAILED")
+                                logger.error("=" * 80)
                         except Exception as e:
-                            logger.error(f"Error processing alert: {str(e)}")
+                            logger.error("=" * 80)
+                            logger.error(f"❌ ERROR PROCESSING ALERT: {alert_name}")
+                            logger.error("=" * 80)
+                            logger.error(f"Error: {str(e)}")
+                            import traceback
+
+                            logger.error(f"Traceback:\n{traceback.format_exc()}")
 
                     background_tasks.add_task(process_alert)
-                    logger.info(f"🔔 Queued alert '{alert_name}' for processing")
+                    logger.info(
+                        f"✓ Queued alert '{alert_name}' for background processing"
+                    )
         elif webhook_data.status == "resolved":
             # Log resolved alerts but verify the metrics actually show resolution
             async def verify_resolution():
@@ -674,10 +847,10 @@ def main():
             "message": f"Received {len(webhook_data.alerts)} alert(s)",
         }
 
-    # Add health endpoint for Kubernetes probes
+    # Add health endpoint for OpenShift probes
     @fastapi_app.get("/health")
     async def health_check():
-        """Health check endpoint for Kubernetes liveness/readiness probes"""
+        """Health check endpoint for OpenShift liveness/readiness probes"""
         return {"status": "healthy", "agent": "DiagnoseAgent"}
 
     logger.info("📡 A2A REST endpoints available:")

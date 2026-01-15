@@ -69,7 +69,7 @@ client:
 
 # Agent 1 (Diagnose Agent)
 agent1:
-  enabled: true
+  enabled: false
   name: agent1
   replicaCount: 1
   image: quay.io/rh-ee-ofridman/agent1:latest
@@ -82,7 +82,7 @@ agent1:
     llmToken: ""  # Optional: Bearer token for LLM API authentication
     llmModel: ""  # Model name for LLM API
     prometheusUrl: "https://thanos-querier.openshift-monitoring.svc:9091"
-    agent2Url: ""  # Optional: Override Agent2 URL (defaults to http://agent2:8080)
+    agent2Url: "http://elastic-3am-killer.integration-test.svc:5001"  # Phase-2 host agent URL
     port: 8080
   resources:
     limits:

@@ -1,0 +1,34 @@
+{{- if and .Values.prometheus.enabled .Values.prometheus.alertRules.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: a2a-demo-alerts
+  labels:
+    app: a2a-demo
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+    openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus
+spec:
+  groups:
+  - name: a2a-demo
+    interval: 30s
+    rules:
+    - alert: HighQueueDepth
+      expr: queue_service_queue_depth > {{ .Values.prometheus.alertRules.queueDepthThreshold }}
+      for: 1m
+      labels:
+        severity: warning
+        service: microservice-a
+      annotations:
+        summary: "High queue depth in Microservice A"
+        description: "Queue depth is {{ "{{" }} $value {{ "}}" }}, which exceeds the threshold of {{ .Values.prometheus.alertRules.queueDepthThreshold }}."
+
+    - alert: MicroserviceBHighCPU
+      expr: rate(process_cpu_seconds_total{job="microservice-b"}[1m]) > 0.08
+      for: 2m
+      labels:
+        severity: warning
+        service: microservice-b
+      annotations:
+        summary: "Microservice B experiencing high CPU usage"
+        description: "CPU usage is {{ "{{" }} $value {{ "}}" }}, indicating resource constraints."
+{{- end }}

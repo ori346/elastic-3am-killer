@@ -1,0 +1,37 @@
+repos:
+  # isort - sorts imports
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: isort
+        args: ["--profile", "black"]
+        exclude: ^\.venv/
+
+  # black - code formatter
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        name: black
+        exclude: ^\.venv/
+
+  # flake8 - linter
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        name: flake8
+        args: ["--extend-ignore=E501,W503"]
+        exclude: ^\.venv/
+
+  # Helm linting for all charts
+  - repo: local
+    hooks:
+      - id: helm-lint
+        name: Helm Lint
+        entry: bash -c 'find . -type d -name "helm" | while read helm_dir; do find "$helm_dir" -mindepth 1 -maxdepth 1 -type d | while read chart; do echo "Linting $chart" && helm lint "$chart" || exit 1; done; done'
+        language: system
+        pass_filenames: false
+        files: '(Chart\.yaml|values\.yaml|templates/.*\.yaml)$'
+

@@ -1,0 +1,58 @@
+{{- if .Values.microserviceB.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.microserviceB.name }}
+  labels:
+    app: {{ .Values.microserviceB.name }}
+    component: processing-service
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: {{ .Values.microserviceB.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.microserviceB.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.microserviceB.name }}
+        component: processing-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.microserviceB.service.port }}"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: processing-service
+        image: {{ .Values.microserviceB.image }}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: {{ .Values.microserviceB.env.port }}
+          name: http
+          protocol: TCP
+        env:
+        - name: PORT
+          value: "{{ .Values.microserviceB.env.port }}"
+        - name: PROCESSING_DELAY
+          value: "{{ .Values.microserviceB.env.processingDelay }}"
+        - name: AGENT_URL
+          value: "{{ .Values.global.agentUrl }}"
+        resources:
+          {{- toYaml .Values.microserviceB.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.microserviceB.env.port }}
+          initialDelaySeconds: {{ .Values.microserviceB.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.microserviceB.probes.liveness.periodSeconds }}
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.microserviceB.env.port }}
+          initialDelaySeconds: {{ .Values.microserviceB.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.microserviceB.probes.readiness.periodSeconds }}
+          timeoutSeconds: 3
+          failureThreshold: 3
+{{- end }}
