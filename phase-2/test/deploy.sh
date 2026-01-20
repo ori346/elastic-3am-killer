@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-NAMESPACE=${1:-integration-test}
+NAMESPACE=${1:-integration-test-ofridman}
 AGENT_URL=${2:-""}
 
 echo "Deploying A2A Demo to OpenShift..."

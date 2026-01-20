@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-NAMESPACE="${1:-integration-test}"
+NAMESPACE="${1:-integration-test-ofridman}"
 RELEASE_NAME="${2:-elastic-3am-killer}"
 
 echo "Cleaning up deployment from namespace: $NAMESPACE"

@@ -45,9 +45,6 @@ Namespace: {state.get('namespace', 'N/A')}
 Alert Diagnostics:
 {json.dumps(state.get('alert_diagnostics', {}), indent=2)}
 
-Microservices Information:
-{json.dumps(state.get('microservices_info', {}), indent=2)}
-
 Remediation Plan:
 {json.dumps(state.get('remediation_plan', {}), indent=2)}
 
@@ -116,7 +113,6 @@ async def get_context_field(ctx: Context, field: str):
             - "remediation_plan": The remediation plan object
             - "alert_name": Name of the alert
             - "namespace": Kubernetes namespace
-            - "microservices_info": Microservices information
 
     Returns:
         The field value (can be dict, list, str, bool, etc.)

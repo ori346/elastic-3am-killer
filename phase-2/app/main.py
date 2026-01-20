@@ -12,10 +12,6 @@ from agents.workflow_agent_executor import WorkflowAgentExecutor
 PORT = os.getenv("AGENT_PORT", "5001")
 AGENT_HOST = os.getenv("AGENT_HOST", "0.0.0.0")
 
-
-# Slack configuration (optional)
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-
 # Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -34,8 +30,8 @@ def create_agent_card() -> AgentCard:
             description="Analyze and remediate OpenShift cluster alerts by investigating the issue, creating remediation plan, executing fixes, and verifying resolution",
             tags=["remediation", "openshift", "automation", "alerts"],
             examples=[
-                "Remediate pod crash alert in integration-test namespace",
-                "Fix high CPU usage alert for microservice-a",
+                "Remediate pod crash alert in namespace",
+                "Fix high CPU usage alert for backend server",
                 "Resolve OOMKilled container in production namespace",
                 "Handle deployment failure alerts",
             ],
@@ -68,9 +64,7 @@ def create_agent_card() -> AgentCard:
 """Main entry point for the Host Agent."""
 agent_card = create_agent_card()
 request_handler = DefaultRequestHandler(
-    agent_executor=WorkflowAgentExecutor(
-        slack_webhook_url=SLACK_WEBHOOK_URL,
-    ),
+    agent_executor=WorkflowAgentExecutor(),
     task_store=InMemoryTaskStore(),
 )
 server = A2AStarletteApplication(

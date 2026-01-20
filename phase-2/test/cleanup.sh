@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-NAMESPACE=${1:-integration-test}
+NAMESPACE=${1:-integration-test-ofridman}
 
 echo "Cleaning up A2A Demo from OpenShift..."
 echo "Namespace: $NAMESPACE"

@@ -86,7 +86,7 @@ def find_pod_by_name(
             if pod_name in all_pods:
                 return True, pod_name
             else:
-                # Try partial match (e.g., "microservice-b" matches "microservice-b-698f45c955-hbkjz")
+                # Try partial match (e.g., "frontend" matches "frontend-698f45c955-hbkjz")
                 matching_pods = [p for p in all_pods if p.startswith(pod_name)]
                 if matching_pods:
                     actual_pod_name = matching_pods[0]  # Use first match
@@ -200,7 +200,7 @@ def execute_oc_get_pods(namespace: str) -> str:
 def execute_oc_describe_pod(pod_name: str, namespace: str) -> str:
     """
     Get pod details with ONLY relevant fields for remediation (status, containers, resources).
-    Optimized to minimize token usage. Supports partial pod names (e.g., "microservice-b" will find "microservice-b-698f45c955-hbkjz").
+    Optimized to minimize token usage. Supports partial pod names (e.g., "frontend" will find "frontend-698f45c955-hbkjz").
 
     Args:
         pod_name: Name of the pod to describe (can be partial, will search for matching pod)
@@ -276,7 +276,7 @@ def execute_oc_get_events(namespace: str, resource_name: str, tail: int = 10) ->
 
     Args:
         namespace: The OpenShift namespace to query
-        resource_name: Resource name to filter events (e.g., "microservice-b") - REQUIRED
+        resource_name: Resource name to filter events (e.g., "backend") - REQUIRED
         tail: Number of recent events to return (default: 10 for token efficiency)
 
     Returns:
@@ -324,7 +324,7 @@ def execute_oc_logs(pod_name: str, namespace: str, pattern: str = "") -> str:
     """
     Execute 'oc logs' command for a specific pod.
     Returns only last 5 lines by default to minimize token usage.
-    Supports partial pod names (e.g., "microservice-b" will find "microservice-b-698f45c955-hbkjz").
+    Supports partial pod names (e.g., "backend" will find "backend-b-698f45c955-hbkjz").
 
     Args:
         pod_name: Name of the pod (can be partial, will search for matching pod)
@@ -508,21 +508,6 @@ def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> str:
         return f"Error executing oc describe deployment: {str(e)}"
 
 
-async def get_microservices_info(ctx: Context) -> str:
-    # TODO consider to enable the agent to do that by itself
-    """
-    Retrieve the microservices structure from the Context object.
-
-    Args:
-        ctx: The Context object containing microservices information.
-
-    Returns:
-        A string representation of the microservices structure.
-    """
-    state = await ctx.store.get("state")
-    return state["microservices_info"]
-
-
 async def read_alert_diagnostics_data(ctx: Context) -> dict:
     """Read alert diagnostics from shared context."""
     state = await ctx.store.get("state")
@@ -578,11 +563,13 @@ tools = [
 
         Required Inputs:
         - explanation (str): Brief explanation of the issue and why the commands will fix it
-          Example: "microservice-b has 128Mi memory limit causing OOMKilled. Increasing to 512Mi."
+          Example: "backend has 128Mi memory limit causing OOMKilled. Increasing to 512Mi."
         - commands (list[str]): List of EXECUTABLE oc commands (NOT descriptions)
           Must be valid shell commands that modify cluster state
 
-        Returns: Confirmation that plan was stored, then MANDATORY handoff instruction
+        Returns: Confirmation that plan was stored with handoff instruction
+
+        NEXT STEP AFTER THIS TOOL: You MUST immediately handoff to "Host Orchestrator"
 
         CRITICAL RULES:
         - Commands MUST be executable shell commands, NOT descriptions
@@ -605,20 +592,8 @@ tools = [
         ❌ commands=["oc set resources deployment frontend --limits=cpu=500m"]  # Missing namespace
 
         When to call: In Step 3, after investigating with oc tools
-        """,
-    ),
-    FunctionTool.from_defaults(
-        fn=get_microservices_info,
-        name="get_microservices_info",
-        description="""Get microservices architecture information from context.
 
-        Purpose: Understand the application structure and dependencies.
-
-        Inputs: None - reads from context["microservices_info"]
-
-        Returns: String describing microservices architecture
-
-        When to call: In Step 0 to understand the application before investigation
+        CRITICAL: After calling this tool, you MUST call handoff tool immediately in Step 4
         """,
     ),
     FunctionTool.from_defaults(
@@ -692,7 +667,7 @@ tools = [
 
         Required Inputs:
         - namespace (str): OpenShift namespace
-        - resource_name (str): Resource name to filter events (e.g., "microservice-b")
+        - resource_name (str): Resource name to filter events (e.g., "backend")
         - tail (int, optional): Number of recent events to return (default: 10)
 
         Returns: Last N events sorted by timestamp, filtered by resource name
@@ -767,24 +742,25 @@ CRITICAL TOOL USAGE LIMIT:
 - If you exceed {MAX_TOOLS} tools, you will be forced to create a remediation plan immediately
 - Be strategic and efficient in your tool usage
 
-MANDATORY WORKFLOW (execute ALL steps):
-STEP 0: Collect information about the alert and the microservices
-- Call get_microservices_info tool
+MANDATORY WORKFLOW (execute ALL steps IN ORDER):
+STEP 1: Collect information about the alert
 - Call read_alert_diagnostics_data tool
 
-STEP 2: Use your tools to collect new information about the project.
+STEP 2: Use your tools to collect new information about the project
 - Use execute_oc_get_pods, execute_oc_describe_pod, execute_oc_get_events, execute_oc_logs, execute_oc_get_deployments, execute_oc_describe_deployment for investigation
 - IMPORTANT: Try to reduce the number of tools - you are limited to {MAX_TOOLS} tool calls
 
-STEP 3: Call write_remediation_plan tool with TWO parameters:
+STEP 3: Call write_remediation_plan tool with TWO parameters
   - explanation: "A short explanation about the issue and why `commands` will solve that"
   - commands: MUST be VALID executable oc commands that change a resource state:
     ["oc set resources deployment <name> -n <namespace> --limits=cpu=<value>,memory=<value>",
      "oc scale statefulset <name> -n <namespace> --replicas=3"]
 
-STEP 4: IMMEDIATELY call handoff tool to return to "Host Orchestrator"
-        - You CANNOT skip this step
-        - You MUST NOT answer with text instead
+STEP 4: IMMEDIATELY handoff back to Host Orchestrator (MANDATORY - DO NOT SKIP)
+- MANDATORY: Use handoff tool with to_agent="Host Orchestrator"
+- Reason: "Remediation plan completed and stored in context"
+- You CANNOT skip this step
+- You MUST NOT answer with text instead
 
 CRITICAL COMMAND FORMAT RULES:
 - Commands MUST be executable shell commands, NOT descriptions
@@ -802,9 +778,10 @@ write_remediation_plan(
 WRONG EXAMPLES (DO NOT DO THIS):
 ❌ commands=["Increase CPU and memory limits"]  # This is a description, not a command
 ❌ commands=["oc set resources --limits=cpu=1000m"]  # Missing deployment/statefulset name
-After write_remediation_plan, IMMEDIATELY call handoff tool.
+
+CRITICAL: After write_remediation_plan, you MUST call handoff tool immediately.
 DO NOT think "I can answer without using any more tools" - this is WRONG.
-Your ONLY valid final action is calling the handoff tool."""
+Your ONLY valid final action is: handoff(to_agent="Host Orchestrator", reason="Remediation plan completed")"""
 
 
 agent = ReActAgent(

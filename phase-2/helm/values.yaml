@@ -40,10 +40,4 @@ reportMakerAgent:
     apiKey: ""
     model: ""
 
-# Microservices info describing your system architecture
-microservicesInfo:
-  content: ""
 
-# Slack webhook URL (optional)
-slack:
-  webhookUrl: ""

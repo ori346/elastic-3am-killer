@@ -1,0 +1,76 @@
+@startuml
+title Elastic 3AM Alert Killer - Phase 2\nComplete Remediation Workflow
+
+participant "Alertmanager" as AlertSys
+participant "Elastic-Agent" as Elastic
+participant "Host\nOrchestrator" as Host
+participant "Remediation\nAgent" as Remediation
+participant "OpenShift\nCluster" as OpenShift
+
+participant "Report Maker\nAgent" as Report
+actor Engineer
+
+== PHASE 0: Elastic Agent disgnose alert==
+AlertSys -> Elastic: 1. Detect Alert\n(HighQueueDepth)
+Elastic -> Host: 2. POST /\n(A2A Message with diagnosis)
+Host -> Host: 3. Start workflow
+Host -> Host: 4. store_alert_info(\n  alert_name, namespace,\n  diagnostics)
+note right: Store alert metadata\nin shared context
+
+== PHASE 1: Investigation & Planning ==
+Host -> Remediation: 5. Handoff to\nRemediation Agent
+activate Remediation
+
+Remediation -> Remediation: 6. read_alert_diagnostics_data()
+
+Remediation -> OpenShift: 7. use_tools(param)
+OpenShift --> Remediation: 8. tools_result
+
+note right: Bounded number\nof tools
+
+Remediation -> OpenShift: 9. use_tools(param)
+OpenShift --> Remediation: 10. tools_result
+
+Remediation -> Remediation: 11. write_remediation_plan(explanation, commands)
+note right: Write commands to\ncontext["remediation_plan"]
+
+Remediation -> Host: 12. Handoff back with plan
+deactivate Remediation
+
+== PHASE 2: Execution ==
+Host -> Host: 13. execute_commands()
+note right: Read commands from\ncontext["remediation_plan"]
+
+Host -> OpenShift: 14. oc scale deployment awesome-app --replica=3...
+OpenShift --> Host: 15. Success/Failed
+
+note right of Host: Store results in\ncontext["commands_execution_results"]
+
+== PHASE 3: Verification [Conditional] ==
+alt execution_success == True
+  Host -> Host: 23. Wait 30s for\nAlertmanager sync
+  Host -> OpenShift: 24. check_alert_status
+  OpenShift -> Host: 25. resolved/Unresolved
+
+
+  note right of Host: Store status in\ncontext["alert_status"]
+else execution_success == False
+  Host -> Host: Skip verification,\nproceed to reporting
+end
+
+== PHASE 4: Reporting ==
+Host -> Report: 26. Handoff to\nReport Maker Agent
+activate Report
+Report -> Report: Convert the context to text
+Report -> Report: 27. query_context(\n  "query")
+
+Report -> Report: 33. write_report_to_context(\n  report_dict)
+note right: Generate structured report:\n- summary\n- root_cause\n- commands_executed\n- remediation_steps\n- recommendations\n- status
+
+Report -> Host: 34. Handoff back with report
+deactivate Report
+
+== Response ==
+Host --> Elastic: 35. POST A2A/\nReport JSON
+Elastic --> Engineer: 37. Report delivered
+@enduml

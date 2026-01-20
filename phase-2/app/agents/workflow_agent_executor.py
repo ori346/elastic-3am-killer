@@ -2,16 +2,16 @@
 Workflow Agent Executor
 
 Orchestrates remediate_agent and report_maker_agent to handle alert diagnosis,
-command execution decisions, and report generation with Slack integration.
+command execution decisions, and report generation.
 """
 
+import json
 import logging
-import os
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
-from a2a.types import DataPart, Message, TextPart
+from a2a.types import DataPart, Message, MessageSendParams, TextPart
 from llama_index.core.agent.workflow import (
     AgentOutput,
     AgentWorkflow,
@@ -27,32 +27,22 @@ from .report_maker_agent import agent as report_generator_agent
 logger = logging.getLogger(__name__)
 
 
-# TODO: Consider enabling the agent to explore the structure by itself. Need larger model for this.
-def read_microservices_info() -> str:
-    """Read microservices info from environment variable or file."""
-    info = os.getenv("MICROSERVICES_INFO")
-    return info or "Micro Services not found"
-
-
 class WorkflowAgentExecutor(AgentExecutor):
     """Orchestrator agent that coordinates remediation and reporting."""
 
     def __init__(
         self,
-        slack_webhook_url: str = "",
     ):
         # Create the orchestrator agent once during initialization
-        self.agent = self._create_workflow_agent(slack_webhook_url)
+        self.agent = self._create_workflow_agent()
 
-    def _create_workflow_agent(self, slack_webhook_url: str) -> AgentWorkflow:
+    def _create_workflow_agent(self) -> AgentWorkflow:
         """Create the main workflow agent."""
 
         initial_state = {
             "alert_name": "",
             "namespace": "",
             "alert_diagnostics": "",
-            "microservices_info": read_microservices_info(),
-            "slack_webhook_url": slack_webhook_url,
             "commands_execution_results": [],
             "alert_status": "Firing",
             "report": {},
@@ -72,12 +62,10 @@ class WorkflowAgentExecutor(AgentExecutor):
 
         text_parts = []
         for part in message.parts:
-            if isinstance(part, TextPart):
-                text_parts.append(part.text)
-            elif hasattr(part, "root") and isinstance(part.root, TextPart):
+            if isinstance(part.root, TextPart):
                 text_parts.append(part.root.text)
-            elif hasattr(part, "text"):
-                text_parts.append(part.text)
+            elif isinstance(part, DataPart):
+                text_parts.append(json.dumps(part.root.data, indent=2))
 
         return "\n".join(text_parts) if text_parts else "No diagnostics provided"
 
@@ -137,6 +125,29 @@ Write all relevant information to the context and don't omit any important detai
             state = await ctx.store.get("state")
             report = state["report"]
 
+            if not report:
+                logger.warning("Report not generated, retrying execution")
+                # Create a new context with a message to continue from where it stopped
+                retry_message = Message(
+                    message_id=f"{context.message.message_id}_retry",
+                    role=context.message.role,
+                    task_id=context.task_id,
+                    context_id=context.context_id,
+                    parts=[
+                        TextPart(
+                            text="You failed to generate a report. Please continue from where you stopped and complete the report generation."
+                        )
+                    ],
+                )
+                retry_request = MessageSendParams(message=retry_message)
+                retry_context = RequestContext(
+                    request=retry_request,
+                    task_id=context.task_id,
+                    context_id=context.context_id,
+                    task=context.current_task,
+                )
+                await self.execute(retry_context, event_queue)
+                return
             # Create and send response message using TaskUpdater helper
             response_message = updater.new_agent_message(parts=[DataPart(data=report)])
             await event_queue.enqueue_event(response_message)

@@ -120,41 +120,19 @@ async def check_alert_status(ctx: Context) -> str:
         return f"{error_msg}. NOW YOU MUST HANDOFF TO 'Remediation Report Generator' - this is MANDATORY."
 
 
-async def send_to_slack(ctx: Context) -> str:
-    """Send report to Engineer via Slack."""
-    state = await ctx.store.get("state")
-    try:
-        report = state["report"]
-        logger.debug(report)
-        if not report:
-            return "Error: No report found in context. Report Generator may not have completed."
-
-        slack_webhook_url = state["slack_webhook_url"]
-
-        if not slack_webhook_url:
-            return "Report sent successfully. NOW YOU MUST TO STOP"
-        logger.info("Simulate Sending report to Slack...")
-    except Exception as e:
-        logger.error(f"error {e}")
-
-    return "Report sent to Slack successfully. NOW YOU MUST TO STOP"
-
-
 async def store_alert_info(
     ctx: Context,
     alert_name: str,
     namespace: str,
     alert_diagnostics: str,
-    microservices_info: str,
     recommendation: str,
 ) -> str:
-    """Store alert information and microservices system info in context for other agents to access.
+    """Store alert information in context for other agents to access.
 
     Args:
         alert_name: The name of the alert
         namespace: The namespace where the alert originated
         alert_diagnostics: The alert diagnostic text
-        microservices_info: System architecture and microservices structure information
         recommendation: Recommended remediation actions for the remediation agent
     """
     # Collect all parameters into a dictionary
@@ -162,7 +140,6 @@ async def store_alert_info(
         "alert_name": alert_name,
         "namespace": namespace,
         "alert_diagnostics": alert_diagnostics,
-        "microservices_info": microservices_info,
         "recommendation": recommendation,
     }
 
@@ -176,10 +153,10 @@ async def store_alert_info(
     return f"Stored {len(stored_keys)} fields in context: {', '.join(stored_keys)}. NOW YOU MUST HANDOFF TO 'Remediation Agent' - this is MANDATORY."
 
 
-system_prompt = """Remediation workflow orchestrator. Execute steps 0-5 IN ORDER. DO NOT skip ahead.
+system_prompt = """Remediation workflow orchestrator. Execute steps 0-4 IN ORDER. DO NOT skip ahead.
 
 STEP 0: Call store_alert_info FIRST
-- Input: alert_name (str), namespace (str), alert_diagnostics (str), microservices_info (str), recommendation (str).
+- Input: alert_name (str), namespace (str), alert_diagnostics (str), recommendation (str).
 - Output: Confirmation stored in context
 - The tool will tell you to handoff to Remediation Agent next
 
@@ -187,7 +164,6 @@ STEP 1: Handoff to Remediation Agent for investigation and planning
 - MANDATORY: Use handoff tool with to_agent="Remediation Agent"
 - The Remediation Agent will:
   * Read alert diagnostics from context
-  * Gather microservices information
   * Analyze the issue
   * Create a remediation plan with commands
   * Store the plan in context
@@ -215,12 +191,7 @@ STEP 4: Handoff to Report Generator to create remediation report
   * Create a structured report with all required fields
   * Store the report in context["report"]
   * Handoff back to you
-- WAIT for handoff back - do NOT proceed to Step 5 until the report is ready
-
-STEP 5: Send report to Slack (ONLY after Report Generator hands back)
-- Call send_to_slack (reads report from context["report"] automatically)
-- The report should be complete and formatted by the Report Generator
-- Say "Workflow completed successfully"
+- WAIT for handoff back - Then say "Workflow completed successfully" and Stop
 
 CRITICAL RULES:
 - Do steps IN ORDER - complete step N before starting step N+1
@@ -228,23 +199,21 @@ CRITICAL RULES:
 - Step 1 handoff to Remediation Agent is MANDATORY - don't skip it
 - Step 4 handoff to Report Generator is MANDATORY - don't skip it
 - If you already did Step 0, proceed to Step 1 (don't repeat Step 0)
-- If Step 2 execution fails, SKIP Step 3 and go directly to Step 4
-- NEVER send to Slack before Report Generator completes"""
+- If Step 2 execution fails, SKIP Step 3 and go directly to Step 4"""
 
 
 tools = [
     FunctionTool.from_defaults(
         fn=store_alert_info,
         name="store_alert_info",
-        description="""Store alert information and microservices system info in shared context for other agents to access.
+        description="""Store alert information in shared context for other agents to access.
 
-        Purpose: Initialize the remediation workflow by storing alert information and system architecture.
+        Purpose: Initialize the remediation workflow by storing alert information.
 
         Required Inputs:
         - alert_name (str): The name of the alert from the monitoring system (e.g., "HighMemoryUsage")
-        - namespace (str): The OpenShift namespace where the alert originated (e.g., "integration-test")
+        - namespace (str): The OpenShift namespace where the alert originated (e.g., "integration-test-ofridman")
         - alert_diagnostics (str): The diagnostic text describing the alert details and context
-        - microservices_info (str): System architecture and microservices structure information
         - recommendation (str): Recommended remediation actions for the remediation agent
 
         Returns: Confirmation message with list of fields stored in context
@@ -300,27 +269,6 @@ tools = [
         When to call: In Step 3, ONLY if Step 2 (execute_commands) succeeded
 
         CRITICAL: After this tool returns, you MUST immediately handoff to 'Remediation Report Generator'
-        """,
-    ),
-    FunctionTool.from_defaults(
-        fn=send_to_slack,
-        name="send_to_slack",
-        description="""Send the remediation report to Slack webhook or log it.
-
-        Purpose: Notify engineers about the remediation results.
-
-        Inputs: None - reads report from context["report"] and slack_webhook_url from context
-
-        Pre-requisites:
-        - Report Generator must have completed and stored report in context["report"]
-
-        Returns: Success confirmation message
-
-        Behavior:
-        - If slack_webhook_url is set: sends to Slack (currently simulated)
-        - If no webhook URL: logs the report locally
-
-        When to call: In Step 5, after Report Generator has completed
         """,
     ),
 ]

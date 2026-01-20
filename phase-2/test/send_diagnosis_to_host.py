@@ -10,21 +10,6 @@ import httpx
 from a2a.client import ClientConfig, ClientFactory
 from a2a.types import AgentCard, DataPart, Message, Role, TextPart
 
-microservices_info = """namespace: integration-test
-**System Architecture & Data Flow**:
-This is a distributed system with two microservices:
-1. **Microservice A (Queue Service)**:
-   - deployment name: microservice-a
-   - Receives requests from clients
-   - Maintains an internal message queue (max size: 100)
-   - Processes queued items by calling Microservice B
-2. **Microservice B (Processing Service)**:
-   - deployment name: microservice-b
-   - Receives requests from Microservice A
-   - Performs CPU-intensive computational work that does not require a lot of memory
-   - Runs in OpenShift with configured resource limits (CPU/Memory)
-FLOW: Clients → microservice-a (queue) → microservice-b (process) and back"""
-
 
 async def send_diagnosis_to_host():
     """Send the diagnosis from agent1 to the host agent."""
@@ -33,23 +18,23 @@ async def send_diagnosis_to_host():
     diagnosis = """**Alert**: HighQueueDepth (Severity: warning)
 **Affected Service**: microservice-a
 **Agent 1 Diagnosis:**
-1. **Root Cause**: The root cause of the performance issue is a high request arrival rate exceeding the processing capacity of Microservice A, leading to a queue buildup.
-2. **Bottleneck Location**: Based on the metrics from Microservice A, I suspect that **Microservice B** is the bottleneck. The average latency to Microservice B is 0.9357 seconds, which is relatively high, indicating that Microservice B is not responding quickly enough. This causes a queue buildup in Microservice A.
+1. **Root Cause**: The root cause of the performance issue is a high request arrival rate exceeding the processing capacity of microservice-a, leading to a queue buildup.
+2. **Bottleneck Location**: Based on the metrics from microservice-a, I suspect that **microservice-b** is the bottleneck. The average latency to microservice-b is 0.9357 seconds, which is relatively high, indicating that microservice-b is not responding quickly enough. This causes a queue buildup in microservice-a.
 3. **Reasoning**:
-   * The high queue depth (100) and queue requests rate (1.068) indicate that requests are arriving faster than Microservice A can process them.
-   * The average latency to Microservice B (0.935 seconds) is a clear indication that Microservice B is taking a significant amount of time to respond, which is causing the queue buildup.
-   * Although I don't have access to Microservice B's internal metrics, the high latency from Microservice A's perspective suggests that the issue lies with Microservice B's processing capacity.
-You should then use this information to optimize Microservice B's resources or adjust its deployment configuration to improve its response time and reduce the latency to Microservice A.
+   * The high queue depth (100) and queue requests rate (1.068) indicate that requests are arriving faster than microservice-a can process them.
+   * The average latency to microservice-b (0.935 seconds) is a clear indication that microservice-b is taking a significant amount of time to respond, which is causing the queue buildup.
+   * Although I don't have access to microservice-b's internal metrics, the high latency from microservice-a's perspective suggests that the issue lies with microservice-b's processing capacity.
+You should then use this information to optimize microservice-b's resources or adjust its deployment configuration to improve its response time and reduce the latency to microservice-a.
 
 **Diagnostic Data:**
 - Queue Depth: 100 (at maximum capacity)
-- Average Latency to Microservice B: 0.935 seconds
+- Average Latency to microservice-b: 0.935 seconds
 - Queue Requests Rate: 1.07 requests/second
 - Service: microservice-a, microservice-b
-- Namespace: integration-test
+- Namespace: integration-test-ofridman
 
 **Recommendation:**
-You should investigate Microservice B's deployment details, resource metrics, and internal metrics to identify the root cause of the high latency. This may involve checking:
+You should investigate microservice-b's deployment details, resource metrics, and internal metrics to identify the root cause of the high latency. This may involve checking:
 * Resource utilization: CPU, memory, and network utilization
 * Deployment configuration: resource allocation"""
 
@@ -84,7 +69,7 @@ You should investigate Microservice B's deployment details, resource metrics, an
         message = Message(
             message_id=str(uuid.uuid4()),
             role=Role.user,
-            parts=[TextPart(text=diagnosis), TextPart(text=microservices_info)],
+            parts=[TextPart(text=diagnosis)],
         )
 
         # Process response

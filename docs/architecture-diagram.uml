@@ -1,0 +1,70 @@
+@startuml
+!define RECTANGLE class
+
+skinparam component {
+    BackgroundColor<<external>> LightBlue
+    BackgroundColor<<internal>> LightGreen
+    BorderColor Black
+}
+
+skinparam rectangle {
+    BackgroundColor WhiteSmoke
+    BorderColor Black
+    roundCorner 15
+}
+
+title Multi-Agent System Architecture\nExternal A2A vs Internal Direct Communication
+
+' External agents
+component "Elastic Agent" as Elastic <<external>> #LightBlue
+
+
+' System boundary
+rectangle "Elastic 3AM Killer System" #WhiteSmoke {
+
+    ' Host Agent - entry point
+    component "Host Agent\n(Orchestrator)" as Host <<internal>> #LightGreen {
+        portin A2A_Interface
+        [Agent Logic\n(llama_stack)]
+        [Tools: store_alert_info, execute_commands, check_alert_status]
+    }
+
+    ' Internal agents
+    component "Remediation Agent\n(Investigation & Planning)" as Remediation <<internal>> #LightGreen {
+        [Agent Logic\n(llama_stack)]
+        [Tools: oc get/describe/logs/events]
+    }
+
+    component "Report Maker Agent\n(Reporting Specialist)" as Report <<internal>> #LightGreen {
+        [Agent Logic\n(llama_stack)]
+        [Tools: query_context, get_context_field]
+    }
+
+    ' Internal communication (direct)
+    Host -[#Green,dashed,thickness=2]down-> Remediation : <color:Green>**Handoff**</color>\n<size:10>Investigation Request</size>
+    Remediation -[#Green,dashed,thickness=2]up-> Host : <color:Green>**Return**</color>\n<size:10>Remediation Plan</size>
+
+    Host -[#Green,dashed,thickness=2]down-> Report : <color:Green>**Handoff**</color>\n<size:10>Report Generation</size>
+    Report -[#Green,dashed,thickness=2]up-> Host : <color:Green>**Return**</color>\n<size:10>Final Report</size>
+
+
+}
+
+' External communication (A2A protocol)
+Elastic -[#Blue,bold,thickness=3]right-> A2A_Interface : <color:Blue>**A2A Protocol**</color>\n<size:10>POST /agent</size>\n<size:10>(Alert Diagnosis)</size>
+
+
+Host -[#Blue,bold,thickness=3]left-> Elastic : <color:Blue>**A2A Protocol**</color>\n<size:10>Response</size>\n<size:10>(Report JSON)</size>
+
+
+legend right
+    |= Legend |
+    |<#LightBlue> External Agent |
+    |<#LightGreen> Internal Agent (llama_stack) |
+
+    **Communication Types:**
+    |<#Blue><color:White> ━━━ </color></#Blue>| A2A Protocol (External) |
+    |<color:Green> ┅┅┅ </color>| Direct Llama Handoff (Internal) |
+endlegend
+
+@enduml
