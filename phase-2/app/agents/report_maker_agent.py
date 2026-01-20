@@ -1,25 +1,15 @@
 import json
-import os
 from typing import Optional
 
+from configs import REPORT_MAKER_AGENT_LLM, create_report_maker_agent_llm
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
-from llama_index.llms.openai_like import OpenAILike
 
-# LLM Configuration - Report Maker Agent specific environment variables with fallback to shared vars
-API_BASE = os.getenv("REPORT_MAKER_AGENT_API_BASE", os.getenv("API_BASE"))
-API_KEY = os.getenv("REPORT_MAKER_AGENT_API_KEY", os.getenv("API_KEY"))
-MODEL = os.getenv("REPORT_MAKER_AGENT_MODEL", os.getenv("MODEL"))
-
-llm = OpenAILike(
-    api_base=API_BASE,
-    api_key=API_KEY,
-    model=MODEL,
-    is_chat_model=True,
-    max_tokens=2048,
-    temperature=0.7,
-    default_headers={"Content-Type": "application/json"},
+# LLM Configuration - using shared configuration
+llm = create_report_maker_agent_llm(
+    max_tokens=REPORT_MAKER_AGENT_LLM.max_tokens,
+    temperature=REPORT_MAKER_AGENT_LLM.temperature,
 )
 
 # Cache for context document to avoid rebuilding on every query
@@ -35,7 +25,7 @@ async def _get_or_build_context_doc(ctx: Context) -> str:
 
     state = await ctx.store.get("state")
 
-    # Build comprehensive context document
+    # Build comprehensive context document with compact JSON to minimize token usage
     _context_cache = f"""
 CONTEXT DATA:
 
@@ -43,18 +33,18 @@ Alert Name: {state.get('alert_name', 'N/A')}
 Namespace: {state.get('namespace', 'N/A')}
 
 Alert Diagnostics:
-{json.dumps(state.get('alert_diagnostics', {}), indent=2)}
+{json.dumps(state.get('alert_diagnostics', {}), separators=(',', ':'))}
 
 Remediation Plan:
-{json.dumps(state.get('remediation_plan', {}), indent=2)}
+{json.dumps(state.get('remediation_plan', {}), separators=(',', ':'))}
 
 Commands Execution Results:
-{json.dumps(state.get('commands_execution_results', []), indent=2)}
+{json.dumps(state.get('commands_execution_results', []), separators=(',', ':'))}
 
 Execution Success: {state.get('execution_success', False)}
 
 Alert Status (Post-Remediation):
-{json.dumps(state.get('alert_status', {}), indent=2)}
+{json.dumps(state.get('alert_status', {}), separators=(',', ':'))}
 """
     return _context_cache
 
@@ -112,7 +102,7 @@ async def get_context_field(ctx: Context, field: str):
             - "alert_diagnostics": Original alert information
             - "remediation_plan": The remediation plan object
             - "alert_name": Name of the alert
-            - "namespace": Kubernetes namespace
+            - "namespace": OpenShift namespace
 
     Returns:
         The field value (can be dict, list, str, bool, etc.)

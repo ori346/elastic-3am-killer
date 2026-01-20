@@ -1,12 +1,11 @@
 import logging
-import os
 import subprocess
 from asyncio import sleep
 
+from configs import ALERTMANAGER, HOST_AGENT_LLM, TIMEOUTS, create_host_agent_llm
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
-from llama_index.llms.openai_like import OpenAILike
 
 # Configure logging
 logging.basicConfig(
@@ -14,24 +13,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# LLM Configuration - Host Agent specific environment variables with fallback to shared vars
-API_BASE = os.getenv("HOST_AGENT_API_BASE", os.getenv("API_BASE"))
-API_KEY = os.getenv("HOST_AGENT_API_KEY", os.getenv("API_KEY"))
-MODEL = os.getenv("HOST_AGENT_MODEL", os.getenv("MODEL"))
-
-llm = OpenAILike(
-    api_base=API_BASE,
-    api_key=API_KEY,
-    model=MODEL,
-    is_chat_model=True,
-    max_tokens=1024,
-    temperature=0.4,
-    default_headers={"Content-Type": "application/json"},
-    system_prompt=(
-        "You are helping the AI Orchestrator Agent to remediate alerts in OpenShift cluster. "
-        "The agent is not allowed to execute commands that do not modify the cluster state such as get, describe, status, logs, etc. "
-        "The agent's role is only orchestrating the workflow and not investigating by itself. The agent uses other agents for investigation."
-    ),
+# LLM Configuration - using shared configuration
+llm = create_host_agent_llm(
+    max_tokens=HOST_AGENT_LLM.max_tokens, temperature=HOST_AGENT_LLM.temperature
 )
 
 
@@ -56,7 +40,7 @@ async def execute_commands(ctx: Context) -> str:
             return "Error: Read-only commands are not allowed for remediation. Try to use the Remediation Agent to investigate the issue."
 
         returncode = subprocess.run(
-            cmd.split(), capture_output=False, timeout=60
+            cmd.split(), capture_output=False, timeout=TIMEOUTS.command_execution
         ).returncode
         status = "Success" if returncode == 0 else "Failed"
         if returncode != 0:
@@ -86,24 +70,24 @@ async def check_alert_status(ctx: Context) -> str:
         return "The alert name is not set in context, set it first"
 
     try:
-        await sleep(30)  # Give Alertmanager time to update
+        await sleep(TIMEOUTS.alertmanager_wait)  # Give Alertmanager time to update
         result = subprocess.run(
             [
                 "oc",
                 "-n",
-                "openshift-monitoring",
+                ALERTMANAGER.namespace,
                 "exec",
-                "alertmanager-main-0",
+                ALERTMANAGER.pod_name,
                 "--",
                 "amtool",
                 "alert",
                 "query",
                 f"alertname={alert_name}",
-                "--alertmanager.url=http://localhost:9093",
+                f"--alertmanager.url={ALERTMANAGER.url}",
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=TIMEOUTS.alert_status_check,
         )
         alert_status = (
             result.stdout
