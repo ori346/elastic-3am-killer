@@ -1,0 +1,64 @@
+# Default values for dependency-demo
+# This is a YAML-formatted file.
+
+frontend:
+  name: frontend-web
+  image: quay.io/rh-ee-ofridman/frontend-web:latest
+  replicas: 2
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+  service:
+    port: 8080
+    targetPort: 8080
+  metrics:
+    enabled: true
+    port: 8080
+    path: /metrics
+
+backend:
+  name: backend-api
+  image: quay.io/rh-ee-ofridman/backend-api:latest
+  replicas: 3
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+  service:
+    port: 8080
+    targetPort: 8080
+  metrics:
+    enabled: true
+    port: 8080
+    path: /metrics
+
+client:
+  name: client-simulator
+  image: quay.io/rh-ee-ofridman/dependency-client:latest
+  replicas: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 64Mi
+    requests:
+      cpu: 50m
+      memory: 32Mi
+  targetService: frontend-web
+  requestRate: 2
+
+monitoring:
+  enabled: true
+  prometheusRule:
+    enabled: true
+    frontendErrorThreshold: 0.8
+    alertDuration: "1m"
+  serviceMonitor:
+    enabled: true
+    interval: 30s

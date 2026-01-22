@@ -1,0 +1,33 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: frontend-high-error-rate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.frontend.name }}
+    chart: {{ include "dependency-demo.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: frontend.rules
+      rules:
+        - alert: FrontendHighErrorRate
+          expr: |
+            (
+              rate(frontend_http_requests_total{status=~"5.."}[2m]) /
+              rate(frontend_http_requests_total[2m])
+            ) > {{ .Values.monitoring.prometheusRule.frontendErrorThreshold }}
+          for: {{ .Values.monitoring.prometheusRule.alertDuration }}
+          labels:
+            severity: warning
+            service: {{ .Values.frontend.name }}
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: "Frontend service experiencing high error rate"
+            description: "Frontend web application {{ .Values.frontend.name }} in namespace {{ .Release.Namespace }} is experiencing {{ `{{ $value | humanizePercentage }}` }} HTTP 5xx error rate."
+            runbook_url: "https://example.com/runbooks/frontend-high-error-rate"
+{{- end }}
