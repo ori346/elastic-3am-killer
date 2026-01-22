@@ -103,8 +103,8 @@ Write all relevant information to the context and don't omit any important detai
         elif isinstance(event, AgentOutput):
             if event.response.content:
                 logger.info(f"📤 Output: {event.response.content}")
-            # if event.tool_calls:
-            #     logger.info(f"🛠️  Planning to use tools: {[call.tool_name for call in event.tool_calls]}")
+            if event.tool_calls:
+                logger.debug(f"🛠️  Planning to use tools: {[call.tool_name for call in event.tool_calls]}")
 
         elif isinstance(event, ToolCallResult):
             logger.info(f"🔧 Tool Result ({event.tool_name}):")
@@ -113,7 +113,7 @@ Write all relevant information to the context and don't omit any important detai
 
         elif isinstance(event, ToolCall):
             logger.info(f"🔨 Calling Tool: {event.tool_name}")
-            # logger.info(f"  With arguments: {event.tool_kwargs}")
+            logger.debug(f"  With arguments: {event.tool_kwargs}")
 
         return current_agent
 
@@ -165,7 +165,7 @@ Write all relevant information to the context and don't omit any important detai
 
         while current_retry <= WORKFLOW.max_retries:
             if current_retry > 0:
-                logger.info(
+                logger.warning(
                     f"Retrying workflow execution (attempt {current_retry + 1}/{WORKFLOW.max_retries + 1})"
                 )
 
@@ -187,7 +187,7 @@ Write all relevant information to the context and don't omit any important detai
         updater = TaskUpdater(event_queue, context.task_id, context.context_id)
 
         try:
-            logger.info("Host agent received alert diagnostics")
+            logger.debug("Host agent received alert diagnostics")
 
             # Submit task if this is a new task (not a continuation)
             if not context.current_task:

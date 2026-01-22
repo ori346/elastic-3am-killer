@@ -1,4 +1,3 @@
-import logging
 import subprocess
 from asyncio import sleep
 
@@ -6,12 +5,6 @@ from configs import ALERTMANAGER, HOST_AGENT_LLM, TIMEOUTS, create_host_agent_ll
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
 
 # LLM Configuration - using shared configuration
 llm = create_host_agent_llm(
@@ -92,7 +85,6 @@ async def check_alert_status(ctx: Context) -> str:
             )
         )
 
-        logger.info(f"alert status: {alert_status}")
         async with ctx.store.edit_state() as ctx_state:
             ctx_state["state"]["alert_status"] = alert_status
         return f"Alert status stored: {alert_status}. NOW YOU MUST HANDOFF TO 'Remediation Report Generator' - this is MANDATORY."
