@@ -11,15 +11,15 @@ This file now uses a modular structure with tools organized by category:
 - Utils: shared utilities for oc command execution
 """
 
+from configs import REMEDIATION_AGENT_LLM, create_remediation_agent_llm
 from llama_index.core.agent import ReActAgent
 
-from configs import REMEDIATION_AGENT_LLM, create_remediation_agent_llm
-from .remediation import all_tools, MAX_TOOLS
+from .remediation import MAX_TOOLS, all_tools
 
 # Create LLM instance using shared configuration
 llm = create_remediation_agent_llm(
     max_tokens=REMEDIATION_AGENT_LLM.max_tokens,
-    temperature=REMEDIATION_AGENT_LLM.temperature
+    temperature=REMEDIATION_AGENT_LLM.temperature,
 )
 
 # System prompt for the remediation agent
@@ -35,7 +35,7 @@ STEP 1: Collect information about the alert
 - Call read_alert_diagnostics_data tool
 
 STEP 2: Use your tools to collect new information about the project
-- Use execute_oc_get_pods, execute_oc_describe_pod, execute_oc_get_events, execute_oc_logs, execute_oc_get_deployments, execute_oc_describe_deployment for investigation
+- Use execute_oc_get_pods, execute_oc_get_pod, execute_oc_describe_pod, execute_oc_get_events, execute_oc_logs, execute_oc_get_deployments, execute_oc_describe_deployment for investigation
 - IMPORTANT: Try to reduce the number of tools - you are limited to {MAX_TOOLS} tool calls
 
 STEP 3: Call write_remediation_plan tool with TWO parameters
@@ -66,6 +66,7 @@ write_remediation_plan(
 WRONG EXAMPLES (DO NOT DO THIS):
 ❌ commands=["Increase CPU and memory limits"]  # This is a description, not a command
 ❌ commands=["oc set resources --limits=cpu=1000m"]  # Missing deployment/statefulset name
+❌ commands=["oc set replicas deployment backend -n app --replicas=2"]  # You need to use sacle deployment and set replicas
 
 CRITICAL: After write_remediation_plan, you MUST call handoff tool immediately.
 DO NOT think "I can answer without using any more tools" - this is WRONG.

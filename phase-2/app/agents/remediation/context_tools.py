@@ -12,6 +12,9 @@ from llama_index.core.workflow import Context
 
 from .tool_tracker import reset_tool_usage_counter
 
+# Read-only OpenShift commands that don't change cluster state
+READ_ONLY_OC_COMMANDS = ("oc get", "oc describe", "oc logs", "oc status", "oc observe", "oc explain")
+
 
 async def read_alert_diagnostics_data(ctx: Context) -> dict:
     """Read alert diagnostics from shared context."""
@@ -29,6 +32,13 @@ async def write_remediation_plan(
     ctx: Context, explanation: str, commands: list[str]
 ) -> str:
     """Write remediation plan to shared context for Host Orchestrator to execute."""
+
+    if not commands:
+        return "Commands can't be empty! Please use your tools and come up with remediation commands"
+
+    # Reject read-only commands
+    if any(cmd.startswith(READ_ONLY_OC_COMMANDS) for cmd in commands):
+        return "Error: Read-only commands won't fix the issue. Use state-changing commands (oc set, oc scale, oc patch, etc.)"
 
     # Reset tool usage counter for the next invocation
     reset_tool_usage_counter()

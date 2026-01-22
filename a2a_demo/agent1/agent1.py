@@ -16,8 +16,16 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.apps import A2ARESTFastAPIApplication
 from a2a.server.events.event_queue import EventQueue
 from a2a.server.request_handlers import RESTHandler
-from a2a.types import (AgentCapabilities, AgentCard, AgentProvider, AgentSkill,
-                       DataPart, Message, Role, TextPart)
+from a2a.types import (
+    AgentCapabilities,
+    AgentCard,
+    AgentProvider,
+    AgentSkill,
+    DataPart,
+    Message,
+    Role,
+    TextPart,
+)
 from fastapi import BackgroundTasks
 from pydantic import BaseModel, Field
 

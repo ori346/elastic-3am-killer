@@ -147,5 +147,5 @@ def create_report_maker_agent_llm(max_tokens: int, temperature: float) -> OpenAI
     return create_agent_llm(
         agent_prefix="REPORT_MAKER_AGENT",
         max_tokens=max_tokens,
-        temperature=temperature
+        temperature=temperature,
     )

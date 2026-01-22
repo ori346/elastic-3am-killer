@@ -29,22 +29,22 @@ async def _get_or_build_context_doc(ctx: Context) -> str:
     _context_cache = f"""
 CONTEXT DATA:
 
-Alert Name: {state.get('alert_name', 'N/A')}
-Namespace: {state.get('namespace', 'N/A')}
+Alert Name: {state["alert_name"]}
+Namespace: {state["namespace"]}
 
 Alert Diagnostics:
-{json.dumps(state.get('alert_diagnostics', {}), separators=(',', ':'))}
+{state["alert_diagnostics"]}
 
 Remediation Plan:
-{json.dumps(state.get('remediation_plan', {}), separators=(',', ':'))}
+{json.dumps(state['remediation_plan'], separators=(',', ':'))}
 
 Commands Execution Results:
-{json.dumps(state.get('commands_execution_results', []), separators=(',', ':'))}
+{state['commands_execution_results']}
 
-Execution Success: {state.get('execution_success', False)}
+Execution Success: {state['execution_success']}
 
 Alert Status (Post-Remediation):
-{json.dumps(state.get('alert_status', {}), separators=(',', ':'))}
+{state['alert_status']}
 """
     return _context_cache
 
@@ -62,7 +62,7 @@ async def query_context(ctx: Context, query: str) -> str:
             - "Provide a 2-3 sentence summary of the incident and remediation"
             - "What steps were taken to remediate the problem?"
             - "What recommendations would prevent this from happening again?"
-            - "What is the current status - resolved or unresolved?"
+            - "What is the current alert status - active or inactive?"
 
     Returns:
         Answer to your query based on the context data
@@ -87,50 +87,74 @@ Answer:"""
         return f"Error querying context: {str(e)}"
 
 
-async def get_context_field(ctx: Context, field: str):
-    """Get a specific field directly from context without LLM processing.
-
-    Use this for fields that don't need interpretation - just return the value
-    directly from context. This is more efficient than query_context for
-    simple data retrieval.
-
-    Args:
-        field: The exact context field name to retrieve. Available fields:
-            - "commands_execution_results": List of executed commands and their results
-            - "execution_success": Boolean indicating if execution succeeded
-            - "alert_status": Post-remediation alert state
-            - "alert_diagnostics": Original alert information
-            - "remediation_plan": The remediation plan object
-            - "alert_name": Name of the alert
-            - "namespace": OpenShift namespace
+def _validate_report_fields(
+    summary: str, root_cause: str, remediation_steps: str, recommendations: str
+) -> Optional[str]:
+    """Validate that all required report fields are provided.
 
     Returns:
-        The field value (can be dict, list, str, bool, etc.)
+        Error message if validation fails, None if all fields are valid
     """
-    state = await ctx.store.get("state")
-    value = state.get(field, f"Field '{field}' not found in context")
+    missing_fields = []
+    if not summary or summary is None:
+        missing_fields.append("summary")
+    if not root_cause or root_cause is None:
+        missing_fields.append("root_cause")
+    if not remediation_steps or remediation_steps is None:
+        missing_fields.append("remediation_steps")
+    if not recommendations or recommendations is None:
+        missing_fields.append("recommendations")
 
-    # Return the raw value so it can be used directly in the report dict
-    return value
+    if missing_fields:
+        return f"Error: Missing required fields: {', '.join(missing_fields)}. Please use query_context to get all required fields before calling write_report_to_context."
+
+    return None
 
 
-async def write_report_to_context(ctx: Context, report: dict) -> str:
+async def write_report_to_context(
+    ctx: Context,
+    summary: str,
+    root_cause: str,
+    remediation_steps: str,
+    recommendations: str,
+) -> str:
     """Write the generated report to shared context.
 
-    The report MUST be a dictionary with these exact fields:
-    - "summary" (str): Brief summary of incident and remediation (2-3 sentences)
-    - "root_cause" (str): Root cause analysis of the issue
-    - "commands_executed" (list): List of [command, status] pairs
-    - "remediation_steps" (str): Description of steps taken
-    - "recommendations" (str): Recommendations to prevent recurrence
-    - "status" (str): "Resolved" or "Unresolved"
+    This function builds a complete report by combining the provided fields
+    with data extracted directly from context (commands_execution_results and alert_status).
 
     Args:
-        report: Dictionary with the exact fields specified above
+        summary: Brief summary of incident and remediation (2-3 sentences)
+        root_cause: Root cause analysis of the issue
+        remediation_steps: Description of steps taken
+        recommendations: Recommendations to prevent recurrence
 
     Returns:
         Confirmation message and handoff instruction
     """
+    # Validate all required fields are provided
+    validation_error = _validate_report_fields(
+        summary, root_cause, remediation_steps, recommendations
+    )
+    if validation_error:
+        return validation_error
+
+    # Extract fields from context
+    state = await ctx.store.get("state")
+    commands_executed = state["commands_execution_results"]
+    alert_status = state["alert_status"]
+
+    # Build complete report
+    report = {
+        "summary": summary,
+        "root_cause": root_cause,
+        "commands_executed": commands_executed,
+        "remediation_steps": remediation_steps,
+        "recommendations": recommendations,
+        "alert_status": alert_status,
+    }
+
+    # Store report in context
     async with ctx.store.edit_state() as ctx_state:
         ctx_state["state"]["report"] = report
 
@@ -147,23 +171,10 @@ tools = [
         - "What was the root cause?"
         - "Provide a summary of the incident"
         - "What recommendations would prevent this?"
-        - "What is the status - resolved or unresolved?"
+        - "What steps were taken to remediate the problem?"
 
         The tool uses LLM to interpret your question and generate an answer.
         Context is cached, so multiple queries are efficient.
-        """,
-    ),
-    FunctionTool.from_defaults(
-        fn=get_context_field,
-        name="get_context_field",
-        description="""Get a specific field directly from context.
-
-        Use this for simple data that doesn't need interpretation:
-        - "commands_execution_results" - get command execution results
-        - "execution_success" - check if execution succeeded
-        - "alert_status" - get post-remediation alert state
-
-        This is faster than query_context for direct field access.
         """,
     ),
     FunctionTool.from_defaults(
@@ -171,13 +182,14 @@ tools = [
         name="write_report_to_context",
         description="""Write the final report to context.
 
-        Report MUST have these exact fields:
-        - summary (str): 2-3 sentence summary
+        This function takes 4 string parameters and automatically extracts
+        commands_executed and alert_status from context to build the complete report.
+
+        MANDATORY parameters:
+        - summary (str): 2-3 sentence summary of incident and remediation
         - root_cause (str): Root cause analysis
-        - commands_executed (list): [command, status] pairs
-        - remediation_steps (str): Steps taken
+        - remediation_steps (str): Description of steps taken
         - recommendations (str): Prevention recommendations
-        - status (str): "Resolved" or "Unresolved"
 
         After calling this, MUST handoff to 'Host Orchestrator'.
         """,
@@ -187,15 +199,17 @@ tools = [
 system_prompt = """You are a report generation specialist with intelligent context querying.
 
 YOUR TASK:
-Generate a remediation report with these EXACT fields:
+Generate a remediation report by gathering information from context and calling write_report_to_context.
+
+The final report will automatically include these fields:
 - summary: Brief summary (2-3 sentences) of incident and remediation
 - root_cause: Root cause of the issue
-- commands_executed: List of [command, status] pairs from execution
+- commands_executed: List of [command, status] pairs (automatically extracted from context)
 - remediation_steps: Description of remediation steps taken
 - recommendations: Recommendations to prevent recurrence
-- status: "Resolved" if execution succeeded and alert cleared, else "Unresolved"
+- alert_status: "Active" or "Inactive" (automatically extracted from context)
 
-TWO TYPES OF TOOLS:
+YOUR TOOLS:
 
 1. query_context - For fields needing ANALYSIS/SYNTHESIS:
    Use natural language queries to get interpreted information:
@@ -203,33 +217,30 @@ TWO TYPES OF TOOLS:
    - root_cause: query_context("What was the root cause of this issue?")
    - remediation_steps: query_context("What steps were taken to remediate the problem?")
    - recommendations: query_context("What recommendations would prevent this issue from recurring?")
-   - status: query_context("Based on execution success and alert status, is this resolved or unresolved?")
 
-2. get_context_field - For DIRECT field access (no interpretation needed):
-   Use for simple data retrieval:
-   - commands_executed: get_context_field("commands_execution_results")
+2. write_report_to_context - Store the report:
+   Takes 4 parameters: summary, root_cause, remediation_steps, recommendations
+   Automatically extracts commands_executed and alert_status from context
 
 MANDATORY WORKFLOW:
-1. Use query_context for fields needing analysis (summary, root_cause, etc.)
-2. Use get_context_field for direct data (commands_executed)
-3. Build the report dict with ALL required fields
-4. Call write_report_to_context with the complete report
-5. IMMEDIATELY handoff to "Host Orchestrator"
+1. Use query_context to get summary
+2. Use query_context to get root_cause
+3. Use query_context to get remediation_steps
+4. Use query_context to get recommendations
+5. Call write_report_to_context with the 4 fields (commands_executed and alert_status are auto-extracted)
+6. IMMEDIATELY handoff to "Host Orchestrator"
 
 EXAMPLE WORKFLOW:
 1. query_context("Provide a 2-3 sentence summary...") → get summary
 2. query_context("What was the root cause?") → get root_cause
-3. get_context_field("commands_execution_results") → get commands_executed
-4. query_context("What steps were taken?") → get remediation_steps
-5. query_context("What recommendations...") → get recommendations
-6. query_context("Is this resolved or unresolved?") → get status
-7. write_report_to_context(report={all fields}) → store report
-8. handoff(to_agent="Host Orchestrator", reason="Report completed")
+3. query_context("What steps were taken?") → get remediation_steps
+4. query_context("What recommendations...") → get recommendations
+5. write_report_to_context(summary, root_cause, remediation_steps, recommendations) → stores complete report
+6. handoff(to_agent="Host Orchestrator", reason="Report completed")
 
 CRITICAL RULES:
-- Report MUST have all 6 fields with exact names
-- Use query_context for interpreted fields
-- Use get_context_field for direct field access
+- Use query_context to get the 4 interpreted fields
+- Call write_report_to_context with exactly 4 string parameters
 - ALWAYS handoff after write_report_to_context
 - DO NOT answer with text - only use tools"""
 

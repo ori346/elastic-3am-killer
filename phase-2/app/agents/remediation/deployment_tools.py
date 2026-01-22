@@ -8,11 +8,11 @@ in OpenShift clusters.
 import json
 import subprocess
 
+from configs import TIMEOUTS
 from llama_index.core.tools import FunctionTool
 
-from configs import TIMEOUTS
 from .tool_tracker import track_tool_usage
-from .utils import run_oc_command, compact_output
+from .utils import compact_output, execute_oc_command_with_error_handling, run_oc_command
 
 
 @track_tool_usage
@@ -27,18 +27,11 @@ def execute_oc_get_deployments(namespace: str) -> str:
     Returns:
         Compact deployment listing
     """
-    try:
-        returncode, stdout, stderr = run_oc_command(
-            ["oc", "get", "deployments", "-n", namespace]
-        )
-        if returncode == 0:
-            return f"Deployments in '{namespace}':\n" + compact_output(stdout)
-        else:
-            return f"Error getting deployments: {stderr}"
-    except subprocess.TimeoutExpired:
-        return f"Timeout executing oc get deployments for namespace {namespace}"
-    except Exception as e:
-        return f"Error executing oc get deployments: {str(e)}"
+    return execute_oc_command_with_error_handling(
+        command=["oc", "get", "deployments", "-n", namespace],
+        success_message_template=f"Deployments in '{namespace}':\n{{stdout}}",
+        error_message_template="Error getting deployments: {stderr}"
+    )
 
 
 @track_tool_usage

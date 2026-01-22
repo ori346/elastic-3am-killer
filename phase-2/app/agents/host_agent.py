@@ -31,14 +31,6 @@ async def execute_commands(ctx: Context) -> str:
     all_succeeded = True
 
     for cmd in commands:
-        if cmd.startswith(
-            ("oc get", "oc describe", "oc logs", "oc status", "oc observe")
-        ):
-            async with ctx.store.edit_state() as ctx_state:
-                ctx_state["state"]["commands_execution_results"] = []
-                ctx_state["state"]["execution_success"] = False
-            return "Error: Read-only commands are not allowed for remediation. Try to use the Remediation Agent to investigate the issue."
-
         returncode = subprocess.run(
             cmd.split(), capture_output=False, timeout=TIMEOUTS.command_execution
         ).returncode
@@ -89,11 +81,18 @@ async def check_alert_status(ctx: Context) -> str:
             text=True,
             timeout=TIMEOUTS.alert_status_check,
         )
+
         alert_status = (
-            result.stdout
-            if result.returncode == 0
-            else f"Failed to check alerts: {result.stderr}"
+            "Active"
+            if result.returncode == 0 and "active" in result.stdout
+            else (
+                "Inactive"
+                if result.returncode == 0
+                else f"Failed to check alerts: {result.stderr}"
+            )
         )
+
+        logger.info(f"alert status: {alert_status}")
         async with ctx.store.edit_state() as ctx_state:
             ctx_state["state"]["alert_status"] = alert_status
         return f"Alert status stored: {alert_status}. NOW YOU MUST HANDOFF TO 'Remediation Report Generator' - this is MANDATORY."

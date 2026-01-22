@@ -11,10 +11,14 @@ import logging
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
-from a2a.types import DataPart, Message, MessageSendParams, TextPart
+from a2a.types import DataPart, Message, TextPart
 from configs import WORKFLOW
-from llama_index.core.agent.workflow import (AgentOutput, AgentWorkflow,
-                                             ToolCall, ToolCallResult)
+from llama_index.core.agent.workflow import (
+    AgentOutput,
+    AgentWorkflow,
+    ToolCall,
+    ToolCallResult,
+)
 from llama_index.core.workflow import Context
 
 from .host_agent import agent as host_agent
@@ -25,35 +29,27 @@ logger = logging.getLogger(__name__)
 
 
 class WorkflowAgentExecutor(AgentExecutor):
-    """Orchestrator agent that coordinates remediation and reporting."""
+    """A dummy agent that starts the ReAct agents."""
 
-    def __init__(
-        self,
-    ):
-        # Create the orchestrator agent once during initialization
+    def __init__(self):
         self.agent = self._create_workflow_agent()
 
     def _create_workflow_agent(self) -> AgentWorkflow:
-        """Create the main workflow agent."""
-
-        initial_state = {
+        return AgentWorkflow(
+            agents=[host_agent, remediate_agent, report_generator_agent],
+            root_agent=host_agent.name,
+            initial_state={
             "alert_name": "",
             "namespace": "",
             "alert_diagnostics": "",
             "commands_execution_results": [],
-            "alert_status": "Firing",
+            "alert_status": "",
             "report": {},
             "remediation_plan": {},
-        }
-
-        return AgentWorkflow(
-            agents=[host_agent, remediate_agent, report_generator_agent],
-            root_agent=host_agent.name,
-            initial_state=initial_state,
+            }
         )
 
     def _extract_text_from_message(self, message: Message) -> str:
-        """Extract text content from A2A message parts."""
         if not message or not message.parts:
             return "No diagnostics provided"
 
@@ -61,86 +57,129 @@ class WorkflowAgentExecutor(AgentExecutor):
         for part in message.parts:
             if isinstance(part.root, TextPart):
                 text_parts.append(part.root.text)
-            elif isinstance(part, DataPart):
+            elif isinstance(part.root, DataPart):
                 text_parts.append(json.dumps(part.root.data, indent=2))
 
         return "\n".join(text_parts) if text_parts else "No diagnostics provided"
 
-    async def _execute_with_retry_tracking(self, context: RequestContext, event_queue: EventQueue, updater: TaskUpdater, retry_count: int = 0) -> None:
-        """Internal execution method with retry tracking."""
-
+    async def _generate_execution_prompt(
+        self, context: RequestContext, retry_count: int
+    ) -> str:
+        """Generate appropriate prompt based on whether this is a retry or initial execution."""
         if retry_count > 0:
-            logger.info(f"Retrying workflow execution (attempt {retry_count + 1}/{WORKFLOW.max_retries + 1})")
-
-        # Create appropriate prompt based on whether this is a retry or initial execution
-        if retry_count > 0:
-            # For retries, tell the agent to continue from where it stopped
-            orchestration_prompt = "You failed to generate a report. Please continue from where you stopped and complete the report generation."
+            return "You failed to generate a report. Please continue from where you stopped and complete the report generation."
         else:
-            # For initial execution, use the alert diagnostics
             alert_diagnostics = self._extract_text_from_message(context.message)
-            orchestration_prompt = f"""You received this alert information:
+            return f"""You received this alert information:
 {alert_diagnostics}
 Write all relevant information to the context and don't omit any important detail."""
 
+    async def _execute_workflow_with_streaming(self, prompt: str) -> dict:
+        """Execute a single workflow attempt with event streaming and return final state.
+        This method does not handle retries - it performs one execution attempt only."""
         logger.info("Running ReActAgent autonomous workflow...")
 
         ctx = Context(workflow=self.agent)
-        handler = self.agent.run(orchestration_prompt, ctx=ctx)
+        handler = self.agent.run(prompt, ctx=ctx)
 
         current_agent = None
         async for event in handler.stream_events():
-            if (
-                hasattr(event, "current_agent_name")
-                and event.current_agent_name != current_agent
-            ):
-                current_agent = event.current_agent_name
-                logger.info(f"\n{'=' * 50}\n🤖 Agent: {current_agent}\n{'=' * 50}")
-            elif isinstance(event, AgentOutput):
-                if event.response.content:
-                    logger.info(f"📤 Output: {event.response.content}")
-                if event.tool_calls:
-                    logger.info(
-                        f"🛠️  Planning to use tools: {[call.tool_name for call in event.tool_calls]}"
-                    )
-            elif isinstance(event, ToolCallResult):
-                logger.info(f"🔧 Tool Result ({event.tool_name}):")
-                logger.info(f"  Arguments: {event.tool_kwargs}")
-                logger.info(f"  Output: {event.tool_output}")
-            elif isinstance(event, ToolCall):
-                logger.info(f"🔨 Calling Tool: {event.tool_name}")
-                logger.info(f"  With arguments: {event.tool_kwargs}")
+            current_agent = await self._process_workflow_event(event, current_agent)
 
         logger.info("Agent workflow completed autonomously")
 
         state = await ctx.store.get("state")
-        report = state["report"]
+        return state
 
-        if not report:
-            if retry_count >= WORKFLOW.max_retries:
-                logger.error(f"Report generation failed after {retry_count + 1} attempts, exceeding max_retries ({WORKFLOW.max_retries})")
+    async def _process_workflow_event(self, event, current_agent: str) -> str:
+        """Process individual workflow events and log appropriately."""
+        if (
+            hasattr(event, "current_agent_name")
+            and event.current_agent_name != current_agent
+        ):
+            current_agent = event.current_agent_name
+            logger.info(f"\n{'=' * 50}\n🤖 Agent: {current_agent}\n{'=' * 50}")
 
-                # Create error response instead of retrying
-                error_message = updater.new_agent_message(
-                    parts=[TextPart(text=f"# Report Generation Failed\n\nReport generation failed after {retry_count + 1} attempts. The workflow was unable to complete the report generation within the configured retry limit of {WORKFLOW.max_retries}.")]
-                )
-                await event_queue.enqueue_event(error_message)
-                await updater.failed()
-                return
+        elif isinstance(event, AgentOutput):
+            if event.response.content:
+                logger.info(f"📤 Output: {event.response.content}")
+            # if event.tool_calls:
+            #     logger.info(f"🛠️  Planning to use tools: {[call.tool_name for call in event.tool_calls]}")
 
-            logger.warning(f"Report not generated, retrying execution (attempt {retry_count + 2}/{WORKFLOW.max_retries + 1})")
+        elif isinstance(event, ToolCallResult):
+            logger.info(f"🔧 Tool Result ({event.tool_name}):")
+            logger.info(f"  Arguments: {event.tool_kwargs}")
+            logger.info(f"  Output: {event.tool_output}")
 
-            # Retry with incremented counter
-            await self._execute_with_retry_tracking(context, event_queue, updater, retry_count + 1)
-            return
+        elif isinstance(event, ToolCall):
+            logger.info(f"🔨 Calling Tool: {event.tool_name}")
+            # logger.info(f"  With arguments: {event.tool_kwargs}")
 
-        # Success - create and send response message using TaskUpdater helper
+        return current_agent
+
+    async def _handle_execution_success(
+        self, report: dict, event_queue: EventQueue, updater: TaskUpdater
+    ) -> None:
+        """Handle successful workflow completion by sending report and marking task complete."""
         response_message = updater.new_agent_message(parts=[DataPart(data=report)])
         await event_queue.enqueue_event(response_message)
-
-        # Mark task as completed
         await updater.complete()
         logger.info("Task execution completed successfully")
+
+    async def _handle_retry_exhaustion(
+        self, retry_count: int, event_queue: EventQueue, updater: TaskUpdater
+    ) -> None:
+        """Handle failure after exhausting all retry attempts."""
+        logger.error(
+            f"Report generation failed after {retry_count + 1} attempts, exceeding max_retries ({WORKFLOW.max_retries})"
+        )
+
+        error_message = updater.new_agent_message(
+            parts=[
+                TextPart(
+                    text="# Remediation process failed\n The workflow was unable to complete the report generation. Please continue from where you stop and finsish the remediation process."
+                )
+            ]
+        )
+        await event_queue.enqueue_event(error_message)
+        await updater.failed()
+
+    async def _handle_execution_exception(
+        self, exception: Exception, event_queue: EventQueue, updater: TaskUpdater
+    ) -> None:
+        """Handle unexpected exceptions during orchestration."""
+        logger.error(f"Error during orchestration: {str(exception)}", exc_info=True)
+
+        error_message = updater.new_agent_message(
+            parts=[TextPart(text=f"# Orchestration Error\n\n{str(exception)}")]
+        )
+        await event_queue.enqueue_event(error_message)
+        await updater.failed()
+        logger.info("Task marked as failed")
+
+    async def _execute_with_retry_tracking(
+        self, context: RequestContext, event_queue: EventQueue, updater: TaskUpdater
+    ) -> None:
+        """Execute workflow with iterative retry tracking."""
+        current_retry = 0
+
+        while current_retry <= WORKFLOW.max_retries:
+            if current_retry > 0:
+                logger.info(
+                    f"Retrying workflow execution (attempt {current_retry + 1}/{WORKFLOW.max_retries + 1})"
+                )
+
+            prompt = await self._generate_execution_prompt(context, current_retry)
+            state = await self._execute_workflow_with_streaming(prompt)
+            report = state["report"]
+
+            if report:
+                await self._handle_execution_success(report, event_queue, updater)
+                return
+
+            current_retry += 1
+
+        await self._handle_retry_exhaustion(current_retry - 1, event_queue, updater)
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Execute the orchestration workflow."""
@@ -161,17 +200,7 @@ Write all relevant information to the context and don't omit any important detai
             await self._execute_with_retry_tracking(context, event_queue, updater)
 
         except Exception as e:
-            logger.error(f"Error during orchestration: {str(e)}", exc_info=True)
-
-            # Create and send error message using TaskUpdater helper
-            error_message = updater.new_agent_message(
-                parts=[TextPart(text=f"# Orchestration Error\n\n{str(e)}")]
-            )
-            await event_queue.enqueue_event(error_message)
-
-            # Mark task as failed
-            await updater.failed()
-            logger.info("Task marked as failed")
+            await self._handle_execution_exception(e, event_queue, updater)
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Handle task cancellation."""

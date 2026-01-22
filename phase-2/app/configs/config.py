@@ -36,16 +36,18 @@ class TimeoutConfig:
 class AlertManagerConfig:
     """Alertmanager configuration for alert status checking."""
 
-    namespace: str = "openshift-monitoring"
-    pod_name: str = "alertmanager-main-0"
+    namespace: str = "openshift-user-workload-monitoring"
+    pod_name: str = "alertmanager-user-workload-0"
     url: str = "http://localhost:9093"
 
     @classmethod
     def from_env(cls) -> "AlertManagerConfig":
         """Create AlertManagerConfig from environment variables."""
         return cls(
-            namespace=os.getenv("ALERTMANAGER_NAMESPACE", "openshift-monitoring"),
-            pod_name=os.getenv("ALERTMANAGER_POD_NAME", "alertmanager-main-0"),
+            namespace=os.getenv(
+                "ALERTMANAGER_NAMESPACE", "openshift-user-workload-monitoring"
+            ),
+            pod_name=os.getenv("ALERTMANAGER_POD_NAME", "alertmanager-user-workload-0"),
             url=os.getenv("ALERTMANAGER_URL", "http://localhost:9093"),
         )
 
@@ -57,6 +59,9 @@ class LogCollectionConfig:
     # Default number of events to return
     events_tail_size: int = 10
 
+    # Pod describe events tail size
+    pod_events_tail_size: int = 5
+
     # Log tail sizes
     logs_tail_default: int = 5  # Default logs without pattern
     logs_tail_with_pattern: int = 100  # Initial tail when using grep pattern
@@ -67,6 +72,7 @@ class LogCollectionConfig:
         """Create LogCollectionConfig from environment variables."""
         return cls(
             events_tail_size=int(os.getenv("EVENTS_TAIL_SIZE", "10")),
+            pod_events_tail_size=int(os.getenv("POD_EVENTS_TAIL_SIZE", "5")),
             logs_tail_default=int(os.getenv("LOGS_TAIL_DEFAULT", "5")),
             logs_tail_with_pattern=int(os.getenv("LOGS_TAIL_WITH_PATTERN", "100")),
             logs_tail_final=int(os.getenv("LOGS_TAIL_FINAL", "10")),
@@ -119,12 +125,12 @@ class RemediationAgentConfig:
     """Configuration specific to the Remediation Agent."""
 
     # Maximum number of tools the remediation agent can use before forced to create plan
-    max_tools: int = 5
+    max_tools: int = 10
 
     @classmethod
     def from_env(cls) -> "RemediationAgentConfig":
         """Create RemediationAgentConfig from environment variables."""
-        return cls(max_tools=int(os.getenv("REMEDIATION_AGENT_MAX_TOOLS", "5")))
+        return cls(max_tools=int(os.getenv("REMEDIATION_AGENT_MAX_TOOLS", "10")))
 
 
 @dataclass
