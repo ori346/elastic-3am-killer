@@ -165,7 +165,7 @@ def execute_oc_command_with_error_handling(
     command: list[str],
     success_message_template: str,
     error_message_template: str,
-    timeout: int = TIMEOUTS.oc_command_default
+    timeout: int = TIMEOUTS.oc_command_default,
 ) -> str:
     """
     Execute oc command with standardized error handling.

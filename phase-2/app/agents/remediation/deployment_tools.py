@@ -12,7 +12,7 @@ from configs import TIMEOUTS
 from llama_index.core.tools import FunctionTool
 
 from .tool_tracker import track_tool_usage
-from .utils import compact_output, execute_oc_command_with_error_handling, run_oc_command
+from .utils import execute_oc_command_with_error_handling
 
 
 @track_tool_usage
@@ -30,7 +30,7 @@ def execute_oc_get_deployments(namespace: str) -> str:
     return execute_oc_command_with_error_handling(
         command=["oc", "get", "deployments", "-n", namespace],
         success_message_template=f"Deployments in '{namespace}':\n{{stdout}}",
-        error_message_template="Error getting deployments: {stderr}"
+        error_message_template="Error getting deployments: {stderr}",
     )
 
 

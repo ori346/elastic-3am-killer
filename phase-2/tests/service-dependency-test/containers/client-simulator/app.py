@@ -15,8 +15,13 @@ import httpx
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import Response
-from prometheus_client import (CONTENT_TYPE_LATEST, Counter, Gauge, Histogram,
-                               generate_latest)
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 # Configure logging
 logging.basicConfig(

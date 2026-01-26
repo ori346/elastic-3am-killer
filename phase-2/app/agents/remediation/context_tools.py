@@ -13,7 +13,14 @@ from llama_index.core.workflow import Context
 from .tool_tracker import reset_tool_usage_counter
 
 # Read-only OpenShift commands that don't change cluster state
-READ_ONLY_OC_COMMANDS = ("oc get", "oc describe", "oc logs", "oc status", "oc observe", "oc explain")
+READ_ONLY_OC_COMMANDS = (
+    "oc get",
+    "oc describe",
+    "oc logs",
+    "oc status",
+    "oc observe",
+    "oc explain",
+)
 
 
 async def read_alert_diagnostics_data(ctx: Context) -> dict:

@@ -39,14 +39,14 @@ class WorkflowAgentExecutor(AgentExecutor):
             agents=[host_agent, remediate_agent, report_generator_agent],
             root_agent=host_agent.name,
             initial_state={
-            "alert_name": "",
-            "namespace": "",
-            "alert_diagnostics": "",
-            "commands_execution_results": [],
-            "alert_status": "",
-            "report": {},
-            "remediation_plan": {},
-            }
+                "alert_name": "",
+                "namespace": "",
+                "alert_diagnostics": "",
+                "commands_execution_results": [],
+                "alert_status": "",
+                "report": {},
+                "remediation_plan": {},
+            },
         )
 
     def _extract_text_from_message(self, message: Message) -> str:
@@ -104,7 +104,9 @@ Write all relevant information to the context and don't omit any important detai
             if event.response.content:
                 logger.info(f"📤 Output: {event.response.content}")
             if event.tool_calls:
-                logger.debug(f"🛠️  Planning to use tools: {[call.tool_name for call in event.tool_calls]}")
+                logger.debug(
+                    f"🛠️  Planning to use tools: {[call.tool_name for call in event.tool_calls]}"
+                )
 
         elif isinstance(event, ToolCallResult):
             logger.info(f"🔧 Tool Result ({event.tool_name}):")

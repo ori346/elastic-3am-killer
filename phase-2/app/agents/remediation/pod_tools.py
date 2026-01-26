@@ -37,7 +37,7 @@ def execute_oc_get_pods(namespace: str) -> str:
     return execute_oc_command_with_error_handling(
         command=["oc", "get", "pods", "-n", namespace],
         success_message_template=f"Pods in '{namespace}':\n{{stdout}}",
-        error_message_template="Error getting pods: {stderr}. Maybe the pod is not available? Consider to scale up the deployment."
+        error_message_template="Error getting pods: {stderr}. Maybe the pod is not available? Consider to scale up the deployment.",
     )
 
 
@@ -205,7 +205,9 @@ def _extract_conditions(section_lines: list[str]) -> dict[str, str]:
     return conditions
 
 
-def _extract_events(section_lines: list[str], count: int = LOG_COLLECTION.pod_events_tail_size) -> list[str]:
+def _extract_events(
+    section_lines: list[str], count: int = LOG_COLLECTION.pod_events_tail_size
+) -> list[str]:
     """Extract last N events from Events section of oc describe output."""
     # Filter out header line
     event_lines = [
@@ -291,7 +293,9 @@ def execute_oc_describe_pod(pod_name: str, namespace: str) -> str:
         # Extract Events
         output_lines.append(f"\nEvents (last {LOG_COLLECTION.pod_events_tail_size}):")
         events_section = parse_describe_section(lines, "Events")
-        events = _extract_events(events_section, count=LOG_COLLECTION.pod_events_tail_size)
+        events = _extract_events(
+            events_section, count=LOG_COLLECTION.pod_events_tail_size
+        )
 
         if events:
             for event in events:
