@@ -3,6 +3,7 @@
 Client Simulator for Service Dependency Test.
 This service generates HTTP requests to the frontend web service to trigger error scenarios.
 """
+
 import asyncio
 import logging
 import os

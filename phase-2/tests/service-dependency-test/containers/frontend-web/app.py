@@ -3,6 +3,7 @@
 Frontend Web Application for Service Dependency Test.
 This service depends on backend-api and will fail when backend is unavailable.
 """
+
 import logging
 import os
 import time
