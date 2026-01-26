@@ -17,7 +17,7 @@ The agents work together to receive alerts, diagnose problems, execute fixes, ve
 ### Agents Flow
 1. Host Agent receives an alert and asks the remediation agent to analyze and come up with remediation commands.
 2. Remediation agent reads the microservice info. Then, the agent can use tools to collect data about the cluster state. Eventually, when it identifies the problem, it generates remediation commands with a short explanation and hands them off to the host agent.
-3. The host agent runs the commands and stores the command execution results. If the commands execute successfully, the agent verifies that the alert resolves and asks the report agent to generate a report.
+3. The host agent runs the commands and stores the command execution results. After command execution, the agent asks the report agent to generate a report.
 4. The report agent collects all the relevant data from the transcript and generates a short and concise report with relevant data for the engineer.
 5. The report is stored in the context, and the protocol is marked as complete. 
 

@@ -5,7 +5,6 @@ This package provides centralized configuration management with environment vari
 """
 
 from .config import (
-    ALERTMANAGER,
     DEPLOYMENT,
     HOST_AGENT_LLM,
     LOG_COLLECTION,
@@ -28,7 +27,6 @@ __all__ = [
     # Configuration objects
     "config",
     "TIMEOUTS",
-    "ALERTMANAGER",
     "LOG_COLLECTION",
     "NETWORK",
     "DEPLOYMENT",

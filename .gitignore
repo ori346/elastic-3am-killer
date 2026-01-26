@@ -5,6 +5,7 @@
 venv/
 */.venv
 *.venv-pip*
+*.egg-info/
 a2a_simple
 .claude/
 .vscode

@@ -1,7 +1,6 @@
 import subprocess
-from asyncio import sleep
 
-from configs import ALERTMANAGER, HOST_AGENT_LLM, TIMEOUTS, create_host_agent_llm
+from configs import HOST_AGENT_LLM, TIMEOUTS, create_host_agent_llm
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
@@ -36,63 +35,8 @@ async def execute_commands(ctx: Context) -> str:
         ctx_state["state"]["commands_execution_results"] = results
         ctx_state["state"]["execution_success"] = all_succeeded
 
-    if all_succeeded:
-        return f"Executed {len(results)} commands. Success: {all_succeeded}. Results: {results}. Now proceed to Step 3 (check_alert_status)."
-    else:
-        return f"Executed {len(results)} commands. Success: {all_succeeded}. Results: {results}. EXECUTION FAILED - SKIP Step 3 and go directly to Step 4: HANDOFF TO 'Remediation Report Generator' - this is MANDATORY."
+    return f"Executed {len(results)} commands. Success: {all_succeeded}. Results: {results}. Now proceed to Step 3: HANDOFF TO 'Remediation Report Generator' - this is MANDATORY."
 
-
-async def check_alert_status(ctx: Context) -> str:
-    """Check if alerts are still firing using Alertmanager."""
-    state = await ctx.store.get("state")
-
-    if not state["commands_execution_results"]:
-        return "There are no commands executed, alerts won't be resolved. Try to execute the commands or call the remediation agent before checking alert status."
-
-    alert_name = state["alert_name"]
-
-    if not alert_name:
-        return "The alert name is not set in context, set it first"
-
-    try:
-        await sleep(TIMEOUTS.alertmanager_wait)  # Give Alertmanager time to update
-        result = subprocess.run(
-            [
-                "oc",
-                "-n",
-                ALERTMANAGER.namespace,
-                "exec",
-                ALERTMANAGER.pod_name,
-                "--",
-                "amtool",
-                "alert",
-                "query",
-                f"alertname={alert_name}",
-                f"--alertmanager.url={ALERTMANAGER.url}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=TIMEOUTS.alert_status_check,
-        )
-
-        alert_status = (
-            "Active"
-            if result.returncode == 0 and "active" in result.stdout
-            else (
-                "Inactive"
-                if result.returncode == 0
-                else f"Failed to check alerts: {result.stderr}"
-            )
-        )
-
-        async with ctx.store.edit_state() as ctx_state:
-            ctx_state["state"]["alert_status"] = alert_status
-        return f"Alert status stored: {alert_status}. NOW YOU MUST HANDOFF TO 'Remediation Report Generator' - this is MANDATORY."
-    except Exception as e:
-        error_msg = f"Error: {str(e)}"
-        async with ctx.store.edit_state() as ctx_state:
-            ctx_state["state"]["alert_status"] = error_msg
-        return f"{error_msg}. NOW YOU MUST HANDOFF TO 'Remediation Report Generator' - this is MANDATORY."
 
 
 async def store_alert_info(
@@ -125,10 +69,10 @@ async def store_alert_info(
 
     stored_keys = list(alert_data.keys())
 
-    return f"Stored {len(stored_keys)} fields in context: {', '.join(stored_keys)}. NOW YOU MUST HANDOFF TO 'Remediation Agent' - this is MANDATORY."
+    return f"Stored {len(stored_keys)} fields in context: {', '.join(stored_keys)}. NOW YOU MUST HANDOFF TO 'Remediation Agent' with detailed context - this is MANDATORY."
 
 
-system_prompt = """Remediation workflow orchestrator. Execute steps 0-4 IN ORDER. DO NOT skip ahead.
+system_prompt = """Remediation workflow orchestrator. Execute steps 0-3 IN ORDER. DO NOT skip ahead.
 
 STEP 0: Call store_alert_info FIRST
 - Input: alert_name (str), namespace (str), alert_diagnostics (str), recommendation (str).
@@ -137,6 +81,11 @@ STEP 0: Call store_alert_info FIRST
 
 STEP 1: Handoff to Remediation Agent for investigation and planning
 - MANDATORY: Use handoff tool with to_agent="Remediation Agent"
+- MANDATORY: Include a detailed reason with specific context:
+  * Alert name and namespace from context
+  * Brief description of the issue
+  * What the agent should focus on
+  * Example reason: "Investigate HighMemoryUsage alert in namespace 'app-prod'. Alert indicates memory consumption above 80% threshold. Analyze pod resources, check for memory leaks, and create remediation commands to address resource constraints."
 - The Remediation Agent will:
   * Read alert diagnostics from context
   * Analyze the issue
@@ -147,19 +96,15 @@ STEP 1: Handoff to Remediation Agent for investigation and planning
 
 STEP 2: Execute commands (ONLY after Remediation Agent hands back)
 - Call execute_commands (reads command list from context automatically)
-- Check the execute_commands result:
-  * If result contains "Success: True" → proceed to Step 3
-  * If result contains "Success: False" or "Error" → SKIP Step 3, go directly to Step 4
+- Always proceed to Step 3 after command execution (regardless of success/failure)
 
-STEP 3: Check alert (ONLY if Step 2 succeeded)
-- Call check_alert_status to verify if alert is still firing
-- This stores the alert status in context for the report
-- The tool will tell you to send report and STOP next
-- If you skipped this step due to failed execution, that's OK - proceed to Step 4
-
-STEP 4: Handoff to Report Generator to create remediation report
+STEP 3: Handoff to Report Generator to create remediation report
 - MANDATORY: Use handoff tool with to_agent="Remediation Report Generator"
-- Reason: "Generate remediation report from context data"
+- MANDATORY: Include a detailed reason with execution context:
+  * Alert name and outcome (success/failure)
+  * Number of commands executed
+  * Brief summary of what was attempted
+  * Example reason: "Generate remediation report for HighMemoryUsage alert in namespace 'app-prod'. Executed 3 remediation commands with SUCCESS/FAILED status. Commands included resource limit adjustments and pod scaling. Create comprehensive incident report with root cause analysis and prevention recommendations."
 - The Report Generator will:
   * Use query_context to ask questions about the incident (summary, root cause, etc.)
   * Use get_context_field to retrieve execution results
@@ -172,9 +117,19 @@ CRITICAL RULES:
 - Do steps IN ORDER - complete step N before starting step N+1
 - After EVERY handoff, WAIT for agent to return before proceeding
 - Step 1 handoff to Remediation Agent is MANDATORY - don't skip it
-- Step 4 handoff to Report Generator is MANDATORY - don't skip it
+- Step 3 handoff to Report Generator is MANDATORY - don't skip it
 - If you already did Step 0, proceed to Step 1 (don't repeat Step 0)
-- If Step 2 execution fails, SKIP Step 3 and go directly to Step 4"""
+- Always proceed to Step 3 after Step 2 (regardless of execution success/failure)
+
+HANDOFF CONTEXT REQUIREMENTS:
+- ALWAYS include specific alert information from stored context in handoff reasons
+- You have access to stored context data: alert_name, namespace, alert_diagnostics, recommendation
+- For Step 1: Build reason like: "Investigate [alert_name] alert in namespace '[namespace]'. Issue: [brief description from alert_diagnostics]. Focus on: [key areas from recommendation]. Analyze cluster state and create remediation commands."
+- For Step 3: Build reason like: "Generate report for [alert_name] alert in namespace '[namespace]'. Executed [X] commands with [SUCCESS/FAILED] outcome. Commands attempted: [brief summary]. Create comprehensive incident report."
+- Use handoff(to_agent="Agent Name", reason="Your crafted detailed context here...")
+- NEVER use generic reasons like "analyze alert" or "generate report"
+- Read from context to understand what happened and craft specific, informative handoff messages
+- Each handoff should tell the receiving agent exactly what to focus on based on the specific situation"""
 
 
 tools = [
@@ -210,40 +165,12 @@ tools = [
         - Commands must be stored in context under key "remediation_plan"
 
         Returns: Execution results as [[command, status], ...] and overall success/failure
-        - If Success: True → tells you to proceed to Step 3 (check_alert_status)
-        - If Success: False → tells you to SKIP Step 3 and HANDOFF to Report Generator
+        - Always tells you to proceed to Step 3 (handoff to Report Generator)
 
         When to call: In Step 2, ONLY after Remediation Agent hands back control
 
         Next step after this tool:
-        - If execution succeeded: proceed to Step 3
-        - If execution failed: go directly to Step 4 (handoff to Report Generator)
-        """,
-    ),
-    FunctionTool.from_defaults(
-        fn=check_alert_status,
-        name="check_alert_status",
-        description="""Check if the alert is still firing in Alertmanager after remediation.
-
-        Purpose: Verify that the remediation actions resolved the alert.
-
-        Inputs: None - reads alert_name from context["alert_name"]
-
-        Pre-requisites:
-        - Alert name must be stored in context
-        - Commands must have been executed (execute_commands called)
-
-        Returns: Alert status from Alertmanager or error message
-        - ALWAYS ends with: "NOW YOU MUST HANDOFF TO 'Remediation Report Generator'"
-
-        Behavior:
-        - Waits for Alertmanager to update
-        - Queries Alertmanager for the specific alert by name
-        - Stores result in context["alert_status"]
-
-        When to call: In Step 3, ONLY if Step 2 (execute_commands) succeeded
-
-        CRITICAL: After this tool returns, you MUST immediately handoff to 'Remediation Report Generator'
+        - Always proceed to Step 3 (handoff to Report Generator)
         """,
     ),
 ]

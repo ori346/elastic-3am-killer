@@ -42,9 +42,6 @@ Commands Execution Results:
 {state['commands_execution_results']}
 
 Execution Success: {state['execution_success']}
-
-Alert Status (Post-Remediation):
-{state['alert_status']}
 """
     return _context_cache
 
@@ -62,7 +59,6 @@ async def query_context(ctx: Context, query: str) -> str:
             - "Provide a 2-3 sentence summary of the incident and remediation"
             - "What steps were taken to remediate the problem?"
             - "What recommendations would prevent this from happening again?"
-            - "What is the current alert status - active or inactive?"
 
     Returns:
         Answer to your query based on the context data
@@ -121,7 +117,7 @@ async def write_report_to_context(
     """Write the generated report to shared context.
 
     This function builds a complete report by combining the provided fields
-    with data extracted directly from context (commands_execution_results and alert_status).
+    with data extracted directly from context (commands_execution_results).
 
     Args:
         summary: Brief summary of incident and remediation (2-3 sentences)
@@ -142,7 +138,6 @@ async def write_report_to_context(
     # Extract fields from context
     state = await ctx.store.get("state")
     commands_executed = state["commands_execution_results"]
-    alert_status = state["alert_status"]
 
     # Build complete report
     report = {
@@ -151,7 +146,6 @@ async def write_report_to_context(
         "commands_executed": commands_executed,
         "remediation_steps": remediation_steps,
         "recommendations": recommendations,
-        "alert_status": alert_status,
     }
 
     # Store report in context
@@ -183,7 +177,7 @@ tools = [
         description="""Write the final report to context.
 
         This function takes 4 string parameters and automatically extracts
-        commands_executed and alert_status from context to build the complete report.
+        commands_executed from context to build the complete report.
 
         MANDATORY parameters:
         - summary (str): 2-3 sentence summary of incident and remediation
@@ -207,7 +201,6 @@ The final report will automatically include these fields:
 - commands_executed: List of [command, status] pairs (automatically extracted from context)
 - remediation_steps: Description of remediation steps taken
 - recommendations: Recommendations to prevent recurrence
-- alert_status: "Active" or "Inactive" (automatically extracted from context)
 
 YOUR TOOLS:
 
@@ -220,14 +213,14 @@ YOUR TOOLS:
 
 2. write_report_to_context - Store the report:
    Takes 4 parameters: summary, root_cause, remediation_steps, recommendations
-   Automatically extracts commands_executed and alert_status from context
+   Automatically extracts commands_executed from context
 
 MANDATORY WORKFLOW:
 1. Use query_context to get summary
 2. Use query_context to get root_cause
 3. Use query_context to get remediation_steps
 4. Use query_context to get recommendations
-5. Call write_report_to_context with the 4 fields (commands_executed and alert_status are auto-extracted)
+5. Call write_report_to_context with the 4 fields (commands_executed is auto-extracted)
 6. IMMEDIATELY handoff to "Host Orchestrator"
 
 EXAMPLE WORKFLOW:

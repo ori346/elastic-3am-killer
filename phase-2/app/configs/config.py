@@ -17,9 +17,6 @@ class TimeoutConfig:
     command_execution: int = 60  # Host agent command execution timeout
     oc_command_default: int = 30  # Default timeout for oc commands
 
-    # Alert checking timeouts
-    alert_status_check: int = 30  # Alertmanager query timeout
-    alertmanager_wait: int = 30  # Wait time before checking Alertmanager
 
     @classmethod
     def from_env(cls) -> "TimeoutConfig":
@@ -27,28 +24,6 @@ class TimeoutConfig:
         return cls(
             command_execution=int(os.getenv("COMMAND_EXECUTION_TIMEOUT", "60")),
             oc_command_default=int(os.getenv("OC_COMMAND_DEFAULT_TIMEOUT", "30")),
-            alert_status_check=int(os.getenv("ALERT_STATUS_CHECK_TIMEOUT", "30")),
-            alertmanager_wait=int(os.getenv("ALERTMANAGER_WAIT_TIMEOUT", "30")),
-        )
-
-
-@dataclass
-class AlertManagerConfig:
-    """Alertmanager configuration for alert status checking."""
-
-    namespace: str = "openshift-user-workload-monitoring"
-    pod_name: str = "alertmanager-user-workload-0"
-    url: str = "http://localhost:9093"
-
-    @classmethod
-    def from_env(cls) -> "AlertManagerConfig":
-        """Create AlertManagerConfig from environment variables."""
-        return cls(
-            namespace=os.getenv(
-                "ALERTMANAGER_NAMESPACE", "openshift-user-workload-monitoring"
-            ),
-            pod_name=os.getenv("ALERTMANAGER_POD_NAME", "alertmanager-user-workload-0"),
-            url=os.getenv("ALERTMANAGER_URL", "http://localhost:9093"),
         )
 
 
@@ -199,7 +174,6 @@ class AppConfig:
     """Main application configuration that combines all config sections."""
 
     timeouts: TimeoutConfig
-    alertmanager: AlertManagerConfig
     log_collection: LogCollectionConfig
     network: NetworkConfig
     deployment: DeploymentConfig
@@ -214,7 +188,6 @@ class AppConfig:
         """Create complete AppConfig from environment variables."""
         return cls(
             timeouts=TimeoutConfig.from_env(),
-            alertmanager=AlertManagerConfig.from_env(),
             log_collection=LogCollectionConfig.from_env(),
             network=NetworkConfig.from_env(),
             deployment=DeploymentConfig.from_env(),
@@ -231,7 +204,6 @@ config = AppConfig.from_env()
 
 # Convenience exports for common values
 TIMEOUTS = config.timeouts
-ALERTMANAGER = config.alertmanager
 LOG_COLLECTION = config.log_collection
 NETWORK = config.network
 DEPLOYMENT = config.deployment
