@@ -7,7 +7,7 @@ An intelligent multi-agent system for automated incident remediation in OpenShif
 The 3AM Alert Killer implements multi-agent architecture where specialized agents collaborate to handle incidents automatically:
 
 
-- **Remediation Agent**: Does executive research about the alert. Collects resources metadata, metrics, and logs to find the cause and create commands that remediate the alert.
+- **Remediation Agent**: Does exhaustive research about the alert. Collects resources metadata, metrics, and logs to find the cause and create commands that remediate the alert.
 - **Report Agent**: Generates incident reports using the protocol transcript so the engineer can see what has been done quickly and easily.
 - **Host Agent**: Orchestrates the remediation workflow. Designed with A2A protocol so you can use any kind of agent to resolve the issue.
 
@@ -15,11 +15,11 @@ The agents work together to receive alerts, diagnose problems, execute fixes, ve
 
 
 ### Agents Flow
-1. Host Agent receives alert and asks the remediation agent to analyze and come up with remediation commands.
-2. Remediation agent reads the microservice info. Then, the agent can use tools to collect data about the cluster state. Eventually when it identifies the problem, it generates remediation commands with a short explanation and hands them off to the host agent.
-3. The host agent runs the commands and stores the commands execution results. If the commands execute gracefully the agent verifies that the alert resolves and asks the report agent to generate a report.
+1. Host Agent receives an alert and asks the remediation agent to analyze and come up with remediation commands.
+2. Remediation agent reads the microservice info. Then, the agent can use tools to collect data about the cluster state. Eventually, when it identifies the problem, it generates remediation commands with a short explanation and hands them off to the host agent.
+3. The host agent runs the commands and stores the command execution results. If the commands execute successfully, the agent verifies that the alert resolves and asks the report agent to generate a report.
 4. The report agent collects all the relevant data from the transcript and generates a short and concise report with relevant data for the engineer.
-5. The agent sends the report via Slack and marks the protocol as complete. 
+5. The report is stored in the context, and the protocol is marked as complete. 
 
 ## Quick Start
 
@@ -57,13 +57,9 @@ reportMakerAgent:
 microservicesInfo:
   content: |
     Write a SHORT explanation about the microservices and the system.
-
-# Slack webhook URL (optional)
-slack:
-  webhookUrl: ""
 ```
 
-When you set all the above we're ready to deploy the agents system
+When you set all the above, we're ready to deploy the agents system
 ```bash
 cd phase-2
 NAMESPACE=<namespace> ./deploy.sh
@@ -77,7 +73,6 @@ NAMESPACE=<namespace> ./deploy.sh
 - **LLM endpoint** with OpenAI-compatible API
 
 ### Optional
-- **Slack Webhook url** (for report notifications)
 - **Prometheus & Alertmanager** (for monitoring integration)
 
 ### Permissions
@@ -91,21 +86,22 @@ NAMESPACE=<namespace> ./deploy.sh
 │                       Host Agent (A2A)                      │
 │  - Receives alerts via A2A protocol                         |
 |  - Orchestrates remediation workflow                        │
-│  - Delivers reports to Slack                                │
+│  - Stores remediation reports in context                    │
 │                                                             │
 │  ┌──────────────────────┐  ┌──────────────────────┐         │
 │  │ Remediation Agent    │  │ Report Agent         │         │
 │  │ - Generate commands  │  │ - Generate reports   │         │
-│  │ - Validate allowlist │  │ - Format for Slack   │         │
+│  │ - Validate allowlist │  │ - Store in context   │         │
 │  └──────────────────────┘  └──────────────────────┘         │
 └─────────────────────────────────────────────────────────────┘
-         ▲                                    │
-         │   A2A                              │ Reports
-         │ Protocol                           |
-         ▼                                    ▼
-┌────────────────┐                    ┌──────────────┐
-│  Client Agent  │                    │    Slack     │
-└────────────────┘                    └──────────────┘
+                             ▲
+                             │   A2A
+                             │ Protocol
+                             │
+                             ▼
+                    ┌────────────────┐
+                    │  Elastic Agent │
+                    └────────────────┘
 ```
 
 

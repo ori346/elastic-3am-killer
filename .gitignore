@@ -14,3 +14,5 @@ start-local.sh
 phase-2/values-file.yaml
 uv.lock
 microservices.txt
+tmp/
+logs/

@@ -13,54 +13,50 @@ skinparam rectangle {
     roundCorner 15
 }
 
-title Multi-Agent System Architecture\nExternal A2A vs Internal Direct Communication
+skinparam nodesep 80
+skinparam ranksep 80
+skinparam padding 10
+skinparam rectanglePadding 15
 
-' External agents
-component "Elastic Agent" as Elastic <<external>> #LightBlue
+left to right direction
 
+title Elastic 3am Alert Killer
 
-' System boundary
-rectangle "Elastic 3AM Killer System" #WhiteSmoke {
+' External agents - positioned on the left
+component "**Elastic Agent**\n(Monitoring & Detection)\n\n• Reads Microservice Logs\n• Detects Issues/Alerts\n• Diagnoses Problems\n• Triggers A2A Protocol\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n                                                                                                                            " as Elastic <<external>> #LightBlue
 
-    ' Host Agent - entry point
-    component "Host Agent\n(Orchestrator)" as Host <<internal>> #LightGreen {
-        portin A2A_Interface
-        [Agent Logic\n(llama_stack)]
-        [Tools: store_alert_info, execute_commands, check_alert_status]
-    }
+' System boundary - positioned on the right
+rectangle "Elastic 3AM Alerts Killer System" #WhiteSmoke {
 
-    ' Internal agents
-    component "Remediation Agent\n(Investigation & Planning)" as Remediation <<internal>> #LightGreen {
-        [Agent Logic\n(llama_stack)]
-        [Tools: oc get/describe/logs/events]
-    }
+    component "**Host Agent**\n(Orchestrator)\n\nAgent: llama-index\n\nTools:\n• store_alert_info\n• execute_commands\n• check_alert_status" as Host <<internal>> #LightGreen
 
-    component "Report Maker Agent\n(Reporting Specialist)" as Report <<internal>> #LightGreen {
-        [Agent Logic\n(llama_stack)]
-        [Tools: query_context, get_context_field]
-    }
+    component "**Report Maker**\n(Reporting Specialist)\n\nAgent: llama-index\n\nTools:\n• query_context\n• get_context_field" as Report <<internal>> #LightGreen
 
-    ' Internal communication (direct)
-    Host -[#Green,dashed,thickness=2]down-> Remediation : <color:Green>**Handoff**</color>\n<size:10>Investigation Request</size>
-    Remediation -[#Green,dashed,thickness=2]up-> Host : <color:Green>**Return**</color>\n<size:10>Remediation Plan</size>
+    component "**Remediation Agent**\n(Investigation & Planning)\n\nAgent: llama-index\n\nTools:\n• oc get/describe\n• logs/events" as Remediation <<internal>> #LightGreen
 
-    Host -[#Green,dashed,thickness=2]down-> Report : <color:Green>**Handoff**</color>\n<size:10>Report Generation</size>
-    Report -[#Green,dashed,thickness=2]up-> Host : <color:Green>**Return**</color>\n<size:10>Final Report</size>
+    ' Compact vertical layout
+    Host -[hidden]down- Report
+    Report -[hidden]down- Remediation
 
+    ' Internal communication with offset routing to prevent overlap
+    Host -[#Green,dashed,thickness=2]-> Report : <color:Green>**Handoff**</color>\n<size:10>Report Generation</size>
+    Report -[#Green,dashed,thickness=2]-> Host : <color:Green>**Handoff**</color>\n<size:10>Final Report</size>
+
+    Host -[#Green,dashed,thickness=2]-> Remediation : <color:Green>**Handoff**</color>\n<size:10>Investigation Request</size>
+    Remediation -[#Green,dashed,thickness=2]-> Host : <color:Green>**Handoff**</color>\n<size:10>Remediation Plan</size>
 
 }
 
-' External communication (A2A protocol)
-Elastic -[#Blue,bold,thickness=3]right-> A2A_Interface : <color:Blue>**A2A Protocol**</color>\n<size:10>POST /agent</size>\n<size:10>(Alert Diagnosis)</size>
+' External communication - direct to Host
+Elastic -[#Blue,bold,thickness=2]-> Host : <color:Blue>**A2A Protocol**</color>\n<size:10>POST /agent</size>\n<size:10>(Alert Diagnosis)</size>
 
-
-Host -[#Blue,bold,thickness=3]left-> Elastic : <color:Blue>**A2A Protocol**</color>\n<size:10>Response</size>\n<size:10>(Report JSON)</size>
+Host -[#Blue,bold,thickness=2]-> Elastic : <color:Blue>**A2A Protocol**</color>\n<size:10>Report JSON</size>
 
 
 legend right
     |= Legend |
     |<#LightBlue> External Agent |
-    |<#LightGreen> Internal Agent (llama_stack) |
+    |<#LightGreen> Internal Agent (lamma-index) |
 
     **Communication Types:**
     |<#Blue><color:White> ━━━ </color></#Blue>| A2A Protocol (External) |

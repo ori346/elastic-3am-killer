@@ -24,7 +24,7 @@ Frontend service is healthy but experiencing 95% HTTP 500 error rate due to fail
 
 **Frontend Service Status** (HEALTHY):
 - Pods: 2/2 READY and RUNNING
-- CPU: 15%, Memory: 45% (normal levels)
+- CPU: 15%, Memory: 25% (normal levels)
 - Health checks: PASSING
 
 **Root Cause Identified:**

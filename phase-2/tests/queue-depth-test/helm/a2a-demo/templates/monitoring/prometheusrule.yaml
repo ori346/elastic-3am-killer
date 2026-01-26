@@ -21,14 +21,4 @@ spec:
       annotations:
         summary: "High queue depth in Microservice A"
         description: "Queue depth is {{ "{{" }} $value {{ "}}" }}, which exceeds the threshold of {{ .Values.prometheus.alertRules.queueDepthThreshold }}."
-
-    - alert: MicroserviceBHighCPU
-      expr: rate(process_cpu_seconds_total{job="microservice-b"}[1m]) > 0.08
-      for: 2m
-      labels:
-        severity: warning
-        service: microservice-b
-      annotations:
-        summary: "Microservice B experiencing high CPU usage"
-        description: "CPU usage is {{ "{{" }} $value {{ "}}" }}, indicating resource constraints."
 {{- end }}
