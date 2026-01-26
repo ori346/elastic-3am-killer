@@ -52,11 +52,6 @@ reportMakerAgent:
     apiBase: ""
     apiKey: ""
     model: ""
-
-# Microservices info describing your system architecture
-microservicesInfo:
-  content: |
-    Write a SHORT explanation about the microservices and the system.
 ```
 
 When you set all the above, we're ready to deploy the agents system
