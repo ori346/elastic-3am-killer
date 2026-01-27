@@ -1,8 +1,8 @@
 """
-Modular remediation agent package for OpenShift alert remediation.
+Modular Alert Remediation Specialist package for OpenShift alert remediation.
 
 This package provides a clean modular structure while maintaining
-the main agent definition in the original remediate_agent.py file.
+the main agent definition in the original alert_remediation_specialist.py file.
 """
 
 from .context_tools import context_tools

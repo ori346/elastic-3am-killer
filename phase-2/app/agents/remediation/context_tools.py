@@ -1,5 +1,5 @@
 """
-Context management tools for OpenShift remediation agent.
+Context management tools for OpenShift Alert Remediation Specialist.
 
 This module provides tools for reading alert diagnostics and writing remediation plans
 to shared context for coordination between agents.
@@ -38,7 +38,7 @@ async def read_alert_diagnostics_data(ctx: Context) -> dict:
 async def write_remediation_plan(
     ctx: Context, explanation: str, commands: list[str]
 ) -> str:
-    """Write remediation plan to shared context for Host Orchestrator to execute."""
+    """Write remediation plan to shared context for Workflow Coordinator to execute."""
 
     if not commands:
         return "Commands can't be empty! Please use your tools and come up with remediation commands"
@@ -53,7 +53,7 @@ async def write_remediation_plan(
     plan = {"explanation": explanation, "commands": commands}
     async with ctx.store.edit_state() as ctx_state:
         ctx_state["state"]["remediation_plan"] = plan
-    return f"Stored remediation plan in context: {json.dumps(plan, indent=2)}. NOW YOU MUST HANDOFF TO 'Host Orchestrator' - this is MANDATORY."
+    return f"Stored remediation plan in context: {json.dumps(plan, indent=2)}. NOW YOU MUST HANDOFF TO 'Workflow Coordinator' - this is MANDATORY."
 
 
 # Tool definitions for LlamaIndex
@@ -82,7 +82,7 @@ context_tools = [
         name="write_remediation_plan",
         description="""Write remediation plan with VALID OC COMMANDS ONLY to shared context.
 
-        Purpose: Create executable remediation commands and explanation for the Host Orchestrator to execute.
+        Purpose: Create executable remediation commands and explanation for the Workflow Coordinator to execute.
 
         Required Inputs:
         - explanation (str): Brief explanation of the issue and why the commands will fix it
@@ -92,7 +92,7 @@ context_tools = [
 
         Returns: Confirmation that plan was stored with handoff instruction
 
-        NEXT STEP AFTER THIS TOOL: You MUST immediately handoff to "Host Orchestrator"
+        NEXT STEP AFTER THIS TOOL: You MUST immediately handoff to "Workflow Coordinator"
 
         CRITICAL RULES:
         - Commands MUST be executable shell commands, NOT descriptions

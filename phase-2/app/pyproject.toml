@@ -8,3 +8,8 @@ dependencies = [
     "llama-index-core",
     "llama-index-llms-openai-like"
 ]
+
+[project.optional-dependencies]
+dev = [
+    "llama-index-utils-workflow"
+]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Common A2A diagnosis sender for sending diagnosis messages to host agent.
+Common A2A diagnosis sender for sending diagnosis messages to workflow coordinator.
 """
 import json
 import uuid
@@ -11,39 +11,39 @@ from a2a.types import AgentCard, DataPart, Message, Role, TextPart
 
 
 class DiagnosisSender:
-    """Handles sending diagnosis messages to a host agent via A2A protocol."""
+    """Handles sending diagnosis messages to a workflow coordinator via A2A protocol."""
 
-    def __init__(self, host_agent_url: str = "http://localhost:5001"):
+    def __init__(self, workflow_coordinator_url: str = "http://localhost:5001"):
         """Initialize the diagnosis sender.
 
         Args:
-            host_agent_url: URL of the host agent (default: http://localhost:5001)
+            workflow_coordinator_url: URL of the workflow coordinator (default: http://localhost:5001)
         """
-        self.host_agent_url = host_agent_url
+        self.workflow_coordinator_url = workflow_coordinator_url
 
     async def send_diagnosis(self, diagnosis_message: str) -> None:
-        """Send a diagnosis message to the host agent.
+        """Send a diagnosis message to the workflow coordinator.
 
         Args:
-            diagnosis_message: The diagnosis text to send to the host agent
+            diagnosis_message: The diagnosis text to send to the workflow coordinator
         """
         async with httpx.AsyncClient(timeout=600.0) as http_client:
-            # Get host agent card
-            print("Fetching host agent card...")
+            # Get workflow coordinator card
+            print("Fetching workflow coordinator card...")
             card_response = await http_client.get(
-                f"{self.host_agent_url}/.well-known/agent-card.json"
+                f"{self.workflow_coordinator_url}/.well-known/agent-card.json"
             )
             agent_card_data = card_response.json()
 
-            # Replace service URL with localhost
-            if "url" in agent_card_data:
-                agent_card_data["url"] = agent_card_data["url"].replace(
-                    "http://host-agent:", "http://localhost:"
-                )
-                print(f"Adjusted agent URL to: {agent_card_data['url']}")
+            # Replace service URL when running on OpenShift
+            # if "url" in agent_card_data:
+            #     agent_card_data["url"] = https://elastic-3am-killer-integration-test-ofridman.apps.ai-dev02.kni.syseng.devcluster.openshift.com
+            #
+            #     print(f"Adjusted agent URL to: {agent_card_data['url']}")
 
+            # Recreate agent card with modified URL
             agent_card = AgentCard.model_validate(agent_card_data)
-            print(f"Host agent: {agent_card.name}")
+            print(f"Workflow coordinator: {agent_card.name}")
             print(f"Skills: {[skill.name for skill in agent_card.skills]}")
 
             # Create client
@@ -52,7 +52,7 @@ class DiagnosisSender:
             client = factory.create(card=agent_card)
 
             # Send message with diagnosis
-            print("\nSending diagnosis to host agent...")
+            print("\nSending diagnosis to workflow coordinator...")
             message = Message(
                 message_id=str(uuid.uuid4()),
                 role=Role.user,

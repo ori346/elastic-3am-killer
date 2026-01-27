@@ -1,5 +1,5 @@
 """
-Deployment-related tools for OpenShift remediation agent.
+Deployment-related tools for OpenShift Alert Remediation Specialist.
 
 This module provides tools for investigating and diagnosing deployment issues
 in OpenShift clusters.

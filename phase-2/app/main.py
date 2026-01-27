@@ -61,7 +61,7 @@ def create_agent_card() -> AgentCard:
     )
 
 
-"""Main entry point for the Host Agent."""
+"""Main entry point for the Workflow Coordinator."""
 agent_card = create_agent_card()
 request_handler = DefaultRequestHandler(
     agent_executor=WorkflowAgentExecutor(),
@@ -72,7 +72,7 @@ server = A2AStarletteApplication(
     http_handler=request_handler,
 )
 logger.info("=" * 70)
-logger.info("Host Orchestrator Ready!")
+logger.info("Workflow Coordinator Ready!")
 logger.info("=" * 70)
 
 

@@ -1,13 +1,14 @@
 import subprocess
 
-from configs import HOST_AGENT_LLM, TIMEOUTS, create_host_agent_llm
+from configs import TIMEOUTS, WORKFLOW_COORDINATOR_LLM, create_workflow_coordinator_llm
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
 
 # LLM Configuration - using shared configuration
-llm = create_host_agent_llm(
-    max_tokens=HOST_AGENT_LLM.max_tokens, temperature=HOST_AGENT_LLM.temperature
+llm = create_workflow_coordinator_llm(
+    max_tokens=WORKFLOW_COORDINATOR_LLM.max_tokens,
+    temperature=WORKFLOW_COORDINATOR_LLM.temperature,
 )
 
 
@@ -17,7 +18,7 @@ async def execute_commands(ctx: Context) -> str:
     commands = state["remediation_plan"]["commands"]
 
     if not commands:
-        return "Commands are not found. Either the remediation agent failed or it needs to be called"
+        return "Commands are not found. Either the Alert Remediation Specialist failed or it needs to be called"
 
     results = []
     all_succeeded = True
@@ -35,8 +36,7 @@ async def execute_commands(ctx: Context) -> str:
         ctx_state["state"]["commands_execution_results"] = results
         ctx_state["state"]["execution_success"] = all_succeeded
 
-    return f"Executed {len(results)} commands. Success: {all_succeeded}. Results: {results}. Now proceed to Step 3: HANDOFF TO 'Remediation Report Generator' - this is MANDATORY."
-
+    return f"Executed {len(results)} commands. Success: {all_succeeded}. Results: {results}. Now proceed to Step 3: HANDOFF TO 'Incident Report Generator' - this is MANDATORY."
 
 
 async def store_alert_info(
@@ -52,7 +52,7 @@ async def store_alert_info(
         alert_name: The name of the alert
         namespace: The namespace where the alert originated
         alert_diagnostics: The alert diagnostic text
-        recommendation: Recommended remediation actions for the remediation agent
+        recommendation: Recommended remediation actions for the Alert Remediation Specialist
     """
     # Collect all parameters into a dictionary
     alert_data = {
@@ -69,7 +69,7 @@ async def store_alert_info(
 
     stored_keys = list(alert_data.keys())
 
-    return f"Stored {len(stored_keys)} fields in context: {', '.join(stored_keys)}. NOW YOU MUST HANDOFF TO 'Remediation Agent' with detailed context - this is MANDATORY."
+    return f"Stored {len(stored_keys)} fields in context: {', '.join(stored_keys)}. NOW YOU MUST HANDOFF TO 'Alert Remediation Specialist' with detailed context - this is MANDATORY."
 
 
 system_prompt = """Remediation workflow orchestrator. Execute steps 0-3 IN ORDER. DO NOT skip ahead.
@@ -77,16 +77,16 @@ system_prompt = """Remediation workflow orchestrator. Execute steps 0-3 IN ORDER
 STEP 0: Call store_alert_info FIRST
 - Input: alert_name (str), namespace (str), alert_diagnostics (str), recommendation (str).
 - Output: Confirmation stored in context
-- The tool will tell you to handoff to Remediation Agent next
+- The tool will tell you to handoff to Alert Remediation Specialist next
 
-STEP 1: Handoff to Remediation Agent for investigation and planning
-- MANDATORY: Use handoff tool with to_agent="Remediation Agent"
+STEP 1: Handoff to Alert Remediation Specialist for investigation and planning
+- MANDATORY: Use handoff tool with to_agent="Alert Remediation Specialist"
 - MANDATORY: Include a detailed reason with specific context:
   * Alert name and namespace from context
   * Brief description of the issue
   * What the agent should focus on
   * Example reason: "Investigate HighMemoryUsage alert in namespace 'app-prod'. Alert indicates memory consumption above 80% threshold. Analyze pod resources, check for memory leaks, and create remediation commands to address resource constraints."
-- The Remediation Agent will:
+- The Alert Remediation Specialist will:
   * Read alert diagnostics from context
   * Analyze the issue
   * Create a remediation plan with commands
@@ -94,12 +94,12 @@ STEP 1: Handoff to Remediation Agent for investigation and planning
   * Handoff back to you
 - WAIT - do nothing until agent hands back
 
-STEP 2: Execute commands (ONLY after Remediation Agent hands back)
+STEP 2: Execute commands (ONLY after Alert Remediation Specialist hands back)
 - Call execute_commands (reads command list from context automatically)
 - Always proceed to Step 3 after command execution (regardless of success/failure)
 
 STEP 3: Handoff to Report Generator to create remediation report
-- MANDATORY: Use handoff tool with to_agent="Remediation Report Generator"
+- MANDATORY: Use handoff tool with to_agent="Incident Report Generator"
 - MANDATORY: Include a detailed reason with execution context:
   * Alert name and outcome (success/failure)
   * Number of commands executed
@@ -116,7 +116,7 @@ STEP 3: Handoff to Report Generator to create remediation report
 CRITICAL RULES:
 - Do steps IN ORDER - complete step N before starting step N+1
 - After EVERY handoff, WAIT for agent to return before proceeding
-- Step 1 handoff to Remediation Agent is MANDATORY - don't skip it
+- Step 1 handoff to Alert Remediation Specialist is MANDATORY - don't skip it
 - Step 3 handoff to Report Generator is MANDATORY - don't skip it
 - If you already did Step 0, proceed to Step 1 (don't repeat Step 0)
 - Always proceed to Step 3 after Step 2 (regardless of execution success/failure)
@@ -144,7 +144,7 @@ tools = [
         - alert_name (str): The name of the alert from the monitoring system (e.g., "HighMemoryUsage")
         - namespace (str): The OpenShift namespace where the alert originated (e.g., "integration-test-ofridman")
         - alert_diagnostics (str): The diagnostic text describing the alert details and context
-        - recommendation (str): Recommended remediation actions for the remediation agent
+        - recommendation (str): Recommended remediation actions for the Alert Remediation Specialist
 
         Returns: Confirmation message with list of fields stored in context
 
@@ -156,18 +156,18 @@ tools = [
         name="execute_commands",
         description="""Execute OpenShift remediation commands from the remediation plan.
 
-        Purpose: Execute the oc commands that were prepared by the Remediation Agent to fix the issue.
+        Purpose: Execute the oc commands that were prepared by the Alert Remediation Specialist to fix the issue.
 
         Inputs: None - reads commands from context["remediation_plan"]["commands"]
 
         Pre-requisites:
-        - Remediation Agent must have completed and stored commands in context
+        - Alert Remediation Specialist must have completed and stored commands in context
         - Commands must be stored in context under key "remediation_plan"
 
         Returns: Execution results as [[command, status], ...] and overall success/failure
         - Always tells you to proceed to Step 3 (handoff to Report Generator)
 
-        When to call: In Step 2, ONLY after Remediation Agent hands back control
+        When to call: In Step 2, ONLY after Alert Remediation Specialist hands back control
 
         Next step after this tool:
         - Always proceed to Step 3 (handoff to Report Generator)
@@ -177,10 +177,10 @@ tools = [
 
 
 agent = ReActAgent(
-    name="Host Orchestrator",
+    name="Workflow Coordinator",
     description="Orchestrates remediation workflow and makes execution decisions",
     tools=tools,
     llm=llm,
     system_prompt=system_prompt,
-    can_handoff_to=["Remediation Agent", "Remediation Report Generator"],
+    can_handoff_to=["Alert Remediation Specialist", "Incident Report Generator"],
 )

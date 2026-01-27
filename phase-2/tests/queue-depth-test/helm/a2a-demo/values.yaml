@@ -82,7 +82,7 @@ agent1:
     llmToken: ""  # Optional: Bearer token for LLM API authentication
     llmModel: ""  # Model name for LLM API
     prometheusUrl: "https://thanos-querier.openshift-monitoring.svc:9091"
-    agent2Url: "http://elastic-3am-killer.integration-test-ofridman.svc:5001"  # Phase-2 host agent URL
+    agent2Url: "http://elastic-3am-killer.integration-test-ofridman.svc:5001"  # Phase-2 workflow coordinator URL
     port: 8080
   resources:
     limits:

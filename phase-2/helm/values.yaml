@@ -17,24 +17,24 @@ llm:
   apiKey: ""
   model: ""
 
-# LLM Configuration for Host Agent (optional, overrides shared config)
-hostAgent:
+# LLM Configuration for Workflow Coordinator (optional, overrides shared config)
+workflowCoordinator:
   llm:
     apiBase: ""
     apiKey: ""
     model: ""
 
-# LLM Configuration for Remediation Agent (optional, overrides shared config)
-remediationAgent:
+# LLM Configuration for Alert Remediation Specialist (optional, overrides shared config)
+alertRemediationSpecialist:
   llm:
     apiBase: ""
     apiKey: ""
     model: ""
   # Maximum number of tool calls allowed during investigation (default: 5)
-  maxTools: 5
+  maxTools: 10
 
-# LLM Configuration for Report Maker Agent (optional, overrides shared config)
-reportMakerAgent:
+# LLM Configuration for Incident Report Generator (optional, overrides shared config)
+incidentReportGenerator:
   llm:
     apiBase: ""
     apiKey: ""

@@ -7,18 +7,18 @@ An intelligent multi-agent system for automated incident remediation in OpenShif
 The 3AM Alert Killer implements multi-agent architecture where specialized agents collaborate to handle incidents automatically:
 
 
-- **Remediation Agent**: Does exhaustive research about the alert. Collects resources metadata, metrics, and logs to find the cause and create commands that remediate the alert.
-- **Report Agent**: Generates incident reports using the protocol transcript so the engineer can see what has been done quickly and easily.
-- **Host Agent**: Orchestrates the remediation workflow. Designed with A2A protocol so you can use any kind of agent to resolve the issue.
+- **Alert Remediation Specialist**: Does exhaustive research about the alert. Collects resources metadata, metrics, and logs to find the cause and create commands that remediate the alert.
+- **Incident Report Generator**: Generates incident reports using the protocol transcript so the engineer can see what has been done quickly and easily.
+- **Workflow Coordinator**: Orchestrates the remediation workflow. Designed with A2A protocol so you can use any kind of agent to resolve the issue.
 
 The agents work together to receive alerts, diagnose problems, execute fixes, verify resolution, and deliver comprehensive reports to your team.
 
 
 ### Agents Flow
-1. Host Agent receives an alert and asks the remediation agent to analyze and come up with remediation commands.
-2. Remediation agent reads the microservice info. Then, the agent can use tools to collect data about the cluster state. Eventually, when it identifies the problem, it generates remediation commands with a short explanation and hands them off to the host agent.
-3. The host agent runs the commands and stores the command execution results. After command execution, the agent asks the report agent to generate a report.
-4. The report agent collects all the relevant data from the transcript and generates a short and concise report with relevant data for the engineer.
+1. Workflow Coordinator receives an alert and asks the Alert Remediation Specialist to analyze and come up with remediation commands.
+2. Alert Remediation Specialist reads the microservice info. Then, the agent can use tools to collect data about the cluster state. Eventually, when it identifies the problem, it generates remediation commands with a short explanation and hands them off to the Workflow Coordinator.
+3. The Workflow Coordinator runs the commands and stores the command execution results. After command execution, the agent asks the Incident Report Generator to generate a report.
+4. The Incident Report Generator collects all the relevant data from the transcript and generates a short and concise report with relevant data for the engineer.
 5. The report is stored in the context, and the protocol is marked as complete. 
 
 ## Quick Start
@@ -35,19 +35,19 @@ llm:
   model: "model name"
 
 # Optional: Override for specific agents (leave empty to use shared config)
-hostAgent:
+workflowCoordinator:
   llm:
     apiBase: ""
     apiKey: ""
     model: ""
 
-remediationAgent:
+alertRemediationSpecialist:
   llm:
     apiBase: ""
     apiKey: ""
     model: ""
 
-reportMakerAgent:
+incidentReportGenerator:
   llm:
     apiBase: ""
     apiKey: ""
@@ -78,13 +78,14 @@ NAMESPACE=<namespace> ./deploy.sh
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                       Host Agent (A2A)                      │
+│                   Workflow Coordinator (A2A)                │
 │  - Receives alerts via A2A protocol                         |
 |  - Orchestrates remediation workflow                        │
 │  - Stores remediation reports in context                    │
 │                                                             │
 │  ┌──────────────────────┐  ┌──────────────────────┐         │
-│  │ Remediation Agent    │  │ Report Agent         │         │
+│  │ Alert Remediation    │  │ Incident Report      │         │
+│  │ Specialist           │  │ Generator            │         │
 │  │ - Generate commands  │  │ - Generate reports   │         │
 │  │ - Validate allowlist │  │ - Store in context   │         │
 │  └──────────────────────┘  └──────────────────────┘         │

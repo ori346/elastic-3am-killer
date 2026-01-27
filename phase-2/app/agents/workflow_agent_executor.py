@@ -1,7 +1,7 @@
 """
 Workflow Agent Executor
 
-Orchestrates remediate_agent and report_maker_agent to handle alert diagnosis,
+Orchestrates alert_remediation_specialist and incident_report_generator to handle alert diagnosis,
 command execution decisions, and report generation.
 """
 
@@ -21,9 +21,9 @@ from llama_index.core.agent.workflow import (
 )
 from llama_index.core.workflow import Context
 
-from .host_agent import agent as host_agent
-from .remediate_agent import agent as remediate_agent
-from .report_maker_agent import agent as report_generator_agent
+from .alert_remediation_specialist_agent import agent as alert_remediation_specialist
+from .incident_report_generator_agent import agent as report_generator_agent
+from .workflow_coordinator_agent import agent as workflow_coordinator
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,12 @@ class WorkflowAgentExecutor(AgentExecutor):
 
     def _create_workflow_agent(self) -> AgentWorkflow:
         return AgentWorkflow(
-            agents=[host_agent, remediate_agent, report_generator_agent],
-            root_agent=host_agent.name,
+            agents=[
+                workflow_coordinator,
+                alert_remediation_specialist,
+                report_generator_agent,
+            ],
+            root_agent=workflow_coordinator.name,
             initial_state={
                 "alert_name": "",
                 "namespace": "",
@@ -189,7 +193,7 @@ Write all relevant information to the context and don't omit any important detai
         updater = TaskUpdater(event_queue, context.task_id, context.context_id)
 
         try:
-            logger.debug("Host agent received alert diagnostics")
+            logger.debug("Workflow coordinator received alert diagnostics")
 
             # Submit task if this is a new task (not a continuation)
             if not context.current_task:

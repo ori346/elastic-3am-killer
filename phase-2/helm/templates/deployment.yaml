@@ -25,7 +25,7 @@ spec:
             - name: UV_CACHE_DIR
               value: /app/.cache/uv
             - name: MAX_TOOLS
-              value: "{{ .Values.remediationAgent.maxTools }}"
+              value: "{{ .Values.alertRemediationSpecialist.maxTools }}"
             - name: AGENT_HOST
               value: "{{ .Release.Name }}.{{ .Release.Namespace }}.svc"
             - name: AGENT_PORT

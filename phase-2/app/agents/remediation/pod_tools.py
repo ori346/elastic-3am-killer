@@ -1,5 +1,5 @@
 """
-Pod-related tools for OpenShift remediation agent.
+Pod-related tools for OpenShift Alert Remediation Specialist.
 
 This module provides tools for investigating and diagnosing pod issues
 in OpenShift clusters.

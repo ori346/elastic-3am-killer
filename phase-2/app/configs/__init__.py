@@ -5,22 +5,22 @@ This package provides centralized configuration management with environment vari
 """
 
 from .config import (
+    ALERT_REMEDIATION_SPECIALIST,
+    ALERT_REMEDIATION_SPECIALIST_LLM,
     DEPLOYMENT,
-    HOST_AGENT_LLM,
+    INCIDENT_REPORT_GENERATOR_LLM,
     LOG_COLLECTION,
     MAX_TOOLS,
     NETWORK,
-    REMEDIATION_AGENT,
-    REMEDIATION_AGENT_LLM,
-    REPORT_MAKER_AGENT_LLM,
     TIMEOUTS,
     WORKFLOW,
+    WORKFLOW_COORDINATOR_LLM,
     config,
 )
 from .llm_config import (
-    create_host_agent_llm,
-    create_remediation_agent_llm,
-    create_report_maker_agent_llm,
+    create_alert_remediation_specialist_llm,
+    create_incident_report_generator_llm,
+    create_workflow_coordinator_llm,
 )
 
 __all__ = [
@@ -30,14 +30,14 @@ __all__ = [
     "LOG_COLLECTION",
     "NETWORK",
     "DEPLOYMENT",
-    "REMEDIATION_AGENT",
+    "ALERT_REMEDIATION_SPECIALIST",
     "WORKFLOW",
-    "HOST_AGENT_LLM",
-    "REMEDIATION_AGENT_LLM",
-    "REPORT_MAKER_AGENT_LLM",
+    "WORKFLOW_COORDINATOR_LLM",
+    "ALERT_REMEDIATION_SPECIALIST_LLM",
+    "INCIDENT_REPORT_GENERATOR_LLM",
     "MAX_TOOLS",
     # LLM factory functions
-    "create_host_agent_llm",
-    "create_remediation_agent_llm",
-    "create_report_maker_agent_llm",
+    "create_workflow_coordinator_llm",
+    "create_alert_remediation_specialist_llm",
+    "create_incident_report_generator_llm",
 ]

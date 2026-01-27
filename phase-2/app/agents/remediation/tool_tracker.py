@@ -1,14 +1,14 @@
 """
-Tool usage tracking for remediation agent.
+Tool usage tracking for Alert Remediation Specialist.
 
 This module provides centralized tool usage tracking and limit enforcement
 to prevent the agent from using too many tools before creating a plan.
 """
 
-from configs import REMEDIATION_AGENT
+from configs import ALERT_REMEDIATION_SPECIALIST
 
 # Tool usage tracking configuration
-MAX_TOOLS = REMEDIATION_AGENT.max_tools
+MAX_TOOLS = ALERT_REMEDIATION_SPECIALIST.max_tools
 
 # Module-level counter for tool usage (resets per agent execution)
 _tool_usage_count = 0

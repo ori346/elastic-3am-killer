@@ -1,5 +1,5 @@
 """
-OpenShift Remediation Agent
+OpenShift Alert Remediation Specialist
 
 Provides functions for executing 'oc' commands to gather cluster information.
 This agent investigates alerts and generates remediation commands for OpenShift clusters.
@@ -11,18 +11,21 @@ This file now uses a modular structure with tools organized by category:
 - Utils: shared utilities for oc command execution
 """
 
-from configs import REMEDIATION_AGENT_LLM, create_remediation_agent_llm
+from configs import (
+    ALERT_REMEDIATION_SPECIALIST_LLM,
+    create_alert_remediation_specialist_llm,
+)
 from llama_index.core.agent import ReActAgent
 
 from .remediation import MAX_TOOLS, all_tools
 
 # Create LLM instance using shared configuration
-llm = create_remediation_agent_llm(
-    max_tokens=REMEDIATION_AGENT_LLM.max_tokens,
-    temperature=REMEDIATION_AGENT_LLM.temperature,
+llm = create_alert_remediation_specialist_llm(
+    max_tokens=ALERT_REMEDIATION_SPECIALIST_LLM.max_tokens,
+    temperature=ALERT_REMEDIATION_SPECIALIST_LLM.temperature,
 )
 
-# System prompt for the remediation agent
+# System prompt for the Alert Remediation Specialist
 system_prompt = f"""OpenShift remediation specialist. You are a TOOL-ONLY agent - you MUST NOT answer with text.
 
 CRITICAL TOOL USAGE LIMIT:
@@ -44,8 +47,8 @@ STEP 3: Call write_remediation_plan tool with TWO parameters
     ["oc set resources deployment <name> -n <namespace> --limits=cpu=<value>,memory=<value>",
      "oc scale statefulset <name> -n <namespace> --replicas=3"]
 
-STEP 4: IMMEDIATELY handoff back to Host Orchestrator (MANDATORY - DO NOT SKIP)
-- MANDATORY: Use handoff tool with to_agent="Host Orchestrator"
+STEP 4: IMMEDIATELY handoff back to Workflow Coordinator (MANDATORY - DO NOT SKIP)
+- MANDATORY: Use handoff tool with to_agent="Workflow Coordinator"
 - Reason: "Remediation plan completed and stored in context"
 - You CANNOT skip this step
 - You MUST NOT answer with text instead
@@ -70,14 +73,14 @@ WRONG EXAMPLES (DO NOT DO THIS):
 
 CRITICAL: After write_remediation_plan, you MUST call handoff tool immediately.
 DO NOT think "I can answer without using any more tools" - this is WRONG.
-Your ONLY valid final action is: handoff(to_agent="Host Orchestrator", reason="Remediation plan completed")"""
+Your ONLY valid final action is: handoff(to_agent="Workflow Coordinator", reason="Remediation plan completed")"""
 
 # Create the agent with all tools from the modular structure
 agent = ReActAgent(
-    name="Remediation Agent",
+    name="Alert Remediation Specialist",
     description="Analyzes alerts and generates remediation commands for OpenShift clusters",
     tools=all_tools,
     llm=llm,
     system_prompt=system_prompt,
-    can_handoff_to=["Host Orchestrator"],
+    can_handoff_to=["Workflow Coordinator"],
 )

@@ -1,15 +1,15 @@
 import json
 from typing import Optional
 
-from configs import REPORT_MAKER_AGENT_LLM, create_report_maker_agent_llm
+from configs import INCIDENT_REPORT_GENERATOR_LLM, create_incident_report_generator_llm
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
 
 # LLM Configuration - using shared configuration
-llm = create_report_maker_agent_llm(
-    max_tokens=REPORT_MAKER_AGENT_LLM.max_tokens,
-    temperature=REPORT_MAKER_AGENT_LLM.temperature,
+llm = create_incident_report_generator_llm(
+    max_tokens=INCIDENT_REPORT_GENERATOR_LLM.max_tokens,
+    temperature=INCIDENT_REPORT_GENERATOR_LLM.temperature,
 )
 
 # Cache for context document to avoid rebuilding on every query
@@ -152,7 +152,7 @@ async def write_report_to_context(
     async with ctx.store.edit_state() as ctx_state:
         ctx_state["state"]["report"] = report
 
-    return f"Report stored successfully: {json.dumps(report, indent=2)}. YOU MUST NOW HANDOFF TO 'Host Orchestrator'."
+    return f"Report stored successfully: {json.dumps(report, indent=2)}. YOU MUST NOW HANDOFF TO 'Workflow Coordinator'."
 
 
 tools = [
@@ -185,7 +185,7 @@ tools = [
         - remediation_steps (str): Description of steps taken
         - recommendations (str): Prevention recommendations
 
-        After calling this, MUST handoff to 'Host Orchestrator'.
+        After calling this, MUST handoff to 'Workflow Coordinator'.
         """,
     ),
 ]
@@ -221,7 +221,7 @@ MANDATORY WORKFLOW:
 3. Use query_context to get remediation_steps
 4. Use query_context to get recommendations
 5. Call write_report_to_context with the 4 fields (commands_executed is auto-extracted)
-6. IMMEDIATELY handoff to "Host Orchestrator"
+6. IMMEDIATELY handoff to "Workflow Coordinator"
 
 EXAMPLE WORKFLOW:
 1. query_context("Provide a 2-3 sentence summary...") → get summary
@@ -229,7 +229,7 @@ EXAMPLE WORKFLOW:
 3. query_context("What steps were taken?") → get remediation_steps
 4. query_context("What recommendations...") → get recommendations
 5. write_report_to_context(summary, root_cause, remediation_steps, recommendations) → stores complete report
-6. handoff(to_agent="Host Orchestrator", reason="Report completed")
+6. handoff(to_agent="Workflow Coordinator", reason="Report completed")
 
 CRITICAL RULES:
 - Use query_context to get the 4 interpreted fields
@@ -238,10 +238,10 @@ CRITICAL RULES:
 - DO NOT answer with text - only use tools"""
 
 agent = ReActAgent(
-    name="Remediation Report Generator",
+    name="Incident Report Generator",
     description="Generates structured remediation reports using intelligent context queries",
     tools=tools,
     llm=llm,
     system_prompt=system_prompt,
-    can_handoff_to=["Host Orchestrator"],
+    can_handoff_to=["Workflow Coordinator"],
 )

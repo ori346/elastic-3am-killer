@@ -35,7 +35,7 @@ def get_agent_api_config(agent_prefix: str) -> tuple[str, str, str]:
     Get API configuration for a specific agent with fallback to shared variables.
 
     Args:
-        agent_prefix: Agent prefix (e.g., "HOST_AGENT", "REMEDIATION_AGENT", "REPORT_MAKER_AGENT")
+        agent_prefix: Agent prefix (e.g., "WORKFLOW_COORDINATOR", "ALERT_REMEDIATION_SPECIALIST", "INCIDENT_REPORT_GENERATOR")
 
     Returns:
         Tuple of (api_base, api_key, model)
@@ -58,7 +58,7 @@ def create_agent_llm(
     Create an OpenAI-like LLM instance for an agent.
 
     Args:
-        agent_prefix: Agent prefix for environment variables (e.g., "HOST_AGENT")
+        agent_prefix: Agent prefix for environment variables (e.g., "WORKFLOW_COORDINATOR")
         max_tokens: Maximum tokens for the agent
         temperature: Temperature for the agent
         system_prompt: System prompt for the agent
@@ -81,16 +81,16 @@ def create_agent_llm(
     )
 
 
-def create_host_agent_llm(max_tokens: int, temperature: float) -> OpenAILike:
+def create_workflow_coordinator_llm(max_tokens: int, temperature: float) -> OpenAILike:
     """
-    Create LLM for Host Agent with predefined system prompt.
+    Create LLM for Workflow Coordinator with predefined system prompt.
 
     Args:
         max_tokens: Maximum tokens for the agent
         temperature: Temperature for the agent
 
     Returns:
-        Configured OpenAILike instance for Host Agent
+        Configured OpenAILike instance for Workflow Coordinator
     """
     system_prompt = (
         "You are helping the AI Orchestrator Agent to remediate alerts in OpenShift cluster. "
@@ -99,53 +99,57 @@ def create_host_agent_llm(max_tokens: int, temperature: float) -> OpenAILike:
     )
 
     return create_agent_llm(
-        agent_prefix="HOST_AGENT",
+        agent_prefix="WORKFLOW_COORDINATOR",
         max_tokens=max_tokens,
         temperature=temperature,
         system_prompt=system_prompt,
     )
 
 
-def create_remediation_agent_llm(max_tokens: int, temperature: float) -> OpenAILike:
+def create_alert_remediation_specialist_llm(
+    max_tokens: int, temperature: float
+) -> OpenAILike:
     """
-    Create LLM for Remediation Agent with predefined system prompt.
+    Create LLM for Alert Remediation Specialist with predefined system prompt.
 
     Args:
         max_tokens: Maximum tokens for the agent
         temperature: Temperature for the agent
 
     Returns:
-        Configured OpenAILike instance for Remediation Agent
+        Configured OpenAILike instance for Alert Remediation Specialist
     """
     system_prompt = (
         "You are helping the AI Remediate Agent to remediate alerts in OpenShift cluster. "
         "The agent is not allowed to execute commands that modify the cluster state such as set, rollout, create, apply, edit, delete, expose, etc. "
-        "The agent's role is to create commands that will resolve the alert in the cluster and handoff these commands back to Host Orchestrator agent."
+        "The agent's role is to create commands that will resolve the alert in the cluster and handoff these commands back to Workflow Coordinator agent."
     )
 
     return create_agent_llm(
-        agent_prefix="REMEDIATION_AGENT",
+        agent_prefix="ALERT_REMEDIATION_SPECIALIST",
         max_tokens=max_tokens,
         temperature=temperature,
         system_prompt=system_prompt,
     )
 
 
-def create_report_maker_agent_llm(max_tokens: int, temperature: float) -> OpenAILike:
+def create_incident_report_generator_llm(
+    max_tokens: int, temperature: float
+) -> OpenAILike:
     """
-    Create LLM for Report Maker Agent (no system prompt needed as it's set in ReActAgent).
+    Create LLM for Incident Report Generator (no system prompt needed as it's set in ReActAgent).
 
     Args:
         max_tokens: Maximum tokens for the agent
         temperature: Temperature for the agent
 
     Returns:
-        Configured OpenAILike instance for Report Maker Agent
+        Configured OpenAILike instance for Incident Report Generator
     """
-    # Report Maker Agent doesn't use system_prompt in LLM config
+    # Incident Report Generator doesn't use system_prompt in LLM config
     # The system prompt is handled by the ReActAgent itself
     return create_agent_llm(
-        agent_prefix="REPORT_MAKER_AGENT",
+        agent_prefix="INCIDENT_REPORT_GENERATOR",
         max_tokens=max_tokens,
         temperature=temperature,
     )
