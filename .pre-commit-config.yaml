@@ -1,13 +1,4 @@
 repos:
-  # isort - sorts imports
-  - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        name: isort
-        args: ["--profile", "black"]
-        exclude: ^\.venv/
-
   # black - code formatter
   - repo: https://github.com/psf/black
     rev: 24.10.0

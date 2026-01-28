@@ -17,3 +17,4 @@ uv.lock
 microservices.txt
 tmp/
 logs/
+.pytest_cache/
