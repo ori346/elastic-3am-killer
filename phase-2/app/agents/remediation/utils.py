@@ -2,12 +2,15 @@
 Utility functions for OpenShift command execution.
 
 This module provides common utilities for executing oc commands and processing output
-that are shared across different tool modules.
+that are shared across different tool modules. Includes support for the unified ToolResult system.
 """
 
 import subprocess
+from typing import Dict, List, Optional
 
 from configs import TIMEOUTS
+
+from .models import ErrorType, ToolError, ToolResult
 
 
 def run_oc_command(
@@ -191,3 +194,130 @@ def execute_oc_command_with_error_handling(
     except Exception as e:
         cmd_str = " ".join(command)
         return f"Error executing {cmd_str}: {str(e)}"
+
+
+# ===== ToolResult System Utilities =====
+
+
+def classify_oc_error(returncode: int, stderr: str) -> ErrorType:
+    """
+    Classify oc command errors into structured types for programmatic handling.
+    """
+    stderr_lower = stderr.lower()
+
+    # Define error patterns with their corresponding types
+    # Order matters: more specific patterns should come first
+    error_patterns = [
+        # CONFIGURATION patterns - specific config-related errors should come before NOT_FOUND
+        (
+            ["configmap", "secret not found in configuration", "invalid configuration"],
+            ErrorType.CONFIGURATION,
+        ),
+        # NOT_FOUND patterns - including server resource type errors
+        (
+            ["not found", "no resources found", "doesn't have a resource type"],
+            ErrorType.NOT_FOUND,
+        ),
+        # TIMEOUT patterns - including various timeout formats
+        (["timeout", "timed out"], ErrorType.TIMEOUT),
+        # SYNTAX patterns - including parsing errors and unknown commands
+        (
+            ["invalid", "syntax", "malformed", "parsing", "unknown command"],
+            ErrorType.SYNTAX,
+        ),
+        # PERMISSION patterns
+        (["forbidden", "unauthorized"], ErrorType.PERMISSION),
+        # NETWORK patterns - including connection variants
+        (["connection", "connect", "network", "unreachable"], ErrorType.NETWORK),
+        # RESOURCE_LIMIT patterns
+        (["quota", "limit"], ErrorType.RESOURCE_LIMIT),
+        # CONFIGURATION patterns (general config errors)
+        (["config", "configuration"], ErrorType.CONFIGURATION),
+    ]
+
+    for patterns, error_type in error_patterns:
+        if any(pattern in stderr_lower for pattern in patterns):
+            return error_type
+
+    return ErrorType.UNKNOWN
+
+
+def get_error_suggestion(
+    error_type: ErrorType,
+    namespace: Optional[str] = None,
+    resource: Optional[str] = None,
+) -> str:
+    """
+    Get specific suggestions based on error type and context.
+    """
+    suggestions = {
+        ErrorType.NOT_FOUND: "Verify that the resource exists and the name/namespace are correct",
+        ErrorType.PERMISSION: "Check that you have sufficient permissions for this operation",
+        ErrorType.NETWORK: "Verify cluster connectivity and authentication",
+        ErrorType.TIMEOUT: "Check cluster responsiveness and consider retrying",
+        ErrorType.SYNTAX: "Verify command syntax and cluster version compatibility",
+        ErrorType.RESOURCE_LIMIT: "Check resource quotas and limits in the namespace",
+        ErrorType.CONFIGURATION: "Review configuration settings and verify correctness",
+        ErrorType.UNKNOWN: "Check command logs and cluster status for more details",
+    }
+
+    suggestion = suggestions.get(error_type, "Contact administrator for assistance")
+
+    # Add context-specific details
+    if namespace and error_type in [ErrorType.NOT_FOUND, ErrorType.PERMISSION]:
+        suggestion += (
+            f" in namespace '{namespace}'"
+            if error_type == ErrorType.NOT_FOUND
+            else f" for namespace '{namespace}'"
+        )
+
+    if resource and error_type == ErrorType.NOT_FOUND:
+        suggestion += (
+            f". Consider checking if {resource} needs to be created or scaled up."
+        )
+
+    return suggestion
+
+
+def extract_container_state(container_status: Dict) -> str:
+    """Extract container state from OpenShift container status."""
+    state = container_status.get("state", {})
+    state_types = ["running", "waiting", "terminated"]
+    return next(
+        (state_type for state_type in state_types if state_type in state), "unknown"
+    )
+
+
+def format_ready_status(container_statuses: List[Dict]) -> str:
+    """Format container ready status as ratio string."""
+    if not container_statuses:
+        return "0/0"
+
+    ready_count = sum(1 for cs in container_statuses if cs.get("ready", False))
+    return f"{ready_count}/{len(container_statuses)}"
+
+
+def create_error_result(
+    error_type: ErrorType,
+    message: str,
+    tool_name: str,
+    recoverable: bool = False,
+    suggestion: Optional[str] = None,
+    raw_output: Optional[str] = None,
+    namespace: Optional[str] = None,
+) -> ToolResult:
+    """Create a ToolResult for an error condition."""
+    if suggestion is None:
+        suggestion = get_error_suggestion(error_type, namespace)
+
+    error = ToolError(
+        type=error_type,
+        message=message,
+        recoverable=recoverable,
+        suggestion=suggestion,
+        raw_output=raw_output,
+    )
+
+    return ToolResult(
+        success=False, data=None, error=error, tool_name=tool_name, namespace=namespace
+    )

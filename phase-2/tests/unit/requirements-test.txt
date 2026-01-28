@@ -1,0 +1,17 @@
+# Testing dependencies for ToolResult system unit tests
+# These are the minimal dependencies needed to run the unit test suite
+# without requiring OpenShift cluster access or full application setup.
+
+# Core testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# Data validation (required by ToolResult models)
+pydantic>=2.0.0
+
+# Optional: Enhanced test output and coverage
+pytest-cov>=4.0.0
+pytest-xdist>=3.0.0  # For parallel test execution
+
+# Optional: Test reporting
+pytest-html>=3.0.0  # For HTML test reports

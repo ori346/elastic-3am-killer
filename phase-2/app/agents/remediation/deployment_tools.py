@@ -2,199 +2,355 @@
 Deployment-related tools for OpenShift Alert Remediation Specialist.
 
 This module provides tools for investigating and diagnosing deployment issues
-in OpenShift clusters.
+in OpenShift clusters. All tools return ToolResult objects with structured data.
 """
 
 import json
 import subprocess
 
-from configs import TIMEOUTS
 from llama_index.core.tools import FunctionTool
 
+from .models import DeploymentCondition, DeploymentInfo, ErrorType, ToolResult
 from .tool_tracker import track_tool_usage
-from .utils import execute_oc_command_with_error_handling
+from .utils import classify_oc_error, create_error_result, run_oc_command
 
 
 @track_tool_usage
-def execute_oc_get_deployments(namespace: str) -> str:
+def execute_oc_get_deployments(namespace: str) -> ToolResult:
     """
-    Execute 'oc get deployments' command for a specific namespace.
-    Returns compacted output with minimal whitespace while preserving table structure.
+    Get all deployments in a namespace with structured output.
 
     Args:
         namespace: The OpenShift namespace to query
 
     Returns:
-        Compact deployment listing
+        ToolResult with List[DeploymentInfo] on success or ToolError on failure
     """
-    return execute_oc_command_with_error_handling(
-        command=["oc", "get", "deployments", "-n", namespace],
-        success_message_template=f"Deployments in '{namespace}':\n{{stdout}}",
-        error_message_template="Error getting deployments: {stderr}",
-    )
+    try:
+        returncode, stdout, stderr = run_oc_command(
+            ["oc", "get", "deployments", "-n", namespace, "-o", "json"]
+        )
+
+        if returncode != 0:
+            error_type = classify_oc_error(returncode, stderr)
+            recoverable = error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK]
+            return create_error_result(
+                error_type=error_type,
+                message=f"Failed to get deployments in namespace '{namespace}': {stderr}",
+                tool_name="execute_oc_get_deployments",
+                recoverable=recoverable,
+                raw_output=stderr,
+                namespace=namespace,
+            )
+
+        try:
+            deployments_json = json.loads(stdout)
+            deployments = []
+
+            for deployment_data in deployments_json.get("items", []):
+                metadata = deployment_data.get("metadata", {})
+                spec = deployment_data.get("spec", {})
+                status = deployment_data.get("status", {})
+
+                # Parse deployment conditions
+                conditions = []
+                for condition in status.get("conditions", []):
+                    deploy_condition = DeploymentCondition(
+                        type=condition["type"],
+                        status=condition["status"],
+                        reason=condition.get("reason"),
+                        message=condition.get("message"),
+                    )
+                    conditions.append(deploy_condition)
+
+                deployment = DeploymentInfo(
+                    name=metadata["name"],
+                    namespace=metadata["namespace"],
+                    ready_replicas=status.get("readyReplicas", 0),
+                    desired_replicas=spec.get("replicas", 0),
+                    available_replicas=status.get("availableReplicas", 0),
+                    updated_replicas=status.get("updatedReplicas", 0),
+                    strategy=spec.get("strategy", {}).get("type"),
+                    conditions=conditions,
+                )
+                deployments.append(deployment)
+
+            return ToolResult(
+                success=True,
+                data=deployments,
+                error=None,
+                tool_name="execute_oc_get_deployments",
+                namespace=namespace,
+            )
+
+        except json.JSONDecodeError as e:
+            return create_error_result(
+                error_type=ErrorType.SYNTAX,
+                message=f"Failed to parse deployments JSON: {str(e)}",
+                tool_name="execute_oc_get_deployments",
+                raw_output=stdout[:500],
+                namespace=namespace,
+            )
+
+    except subprocess.TimeoutExpired:
+        return create_error_result(
+            error_type=ErrorType.TIMEOUT,
+            message="Command timed out",
+            tool_name="execute_oc_get_deployments",
+            recoverable=True,
+            namespace=namespace,
+        )
+    except Exception as e:
+        return create_error_result(
+            error_type=ErrorType.UNKNOWN,
+            message=f"Unexpected error getting deployments: {str(e)}",
+            tool_name="execute_oc_get_deployments",
+            namespace=namespace,
+        )
 
 
 @track_tool_usage
-def execute_oc_get_deployment_resources(deployment_name: str, namespace: str) -> str:
+def execute_oc_get_deployment_resources(
+    deployment_name: str, namespace: str
+) -> ToolResult:
     """
-    Execute 'oc get deployment' command to retrieve ONLY the container resource limits/requests.
-    This is optimized to reduce token usage by extracting only what's needed for remediation.
+    Get deployment container resource configuration with structured output.
 
     Args:
         deployment_name: Name of the deployment
         namespace: The OpenShift namespace
 
     Returns:
-        Container resource configuration (limits and requests only)
+        ToolResult with DeploymentInfo (focused on resource configuration) on success or ToolError on failure
     """
     try:
-        # Use jsonpath to extract ONLY the container specs (resources, image, name)
-        # This dramatically reduces token usage vs full YAML
-        result = subprocess.run(
-            [
-                "oc",
-                "get",
-                "deployment",
-                deployment_name,
-                "-n",
-                namespace,
-                "-o",
-                'jsonpath={range .spec.template.spec.containers[*]}{"Container: "}{.name}{"\\n"}{"Image: "}{.image}{"\\n"}{"Resources:\\n"}{.resources}{"\\n---\\n"}{end}',
-            ],
-            capture_output=True,
-            text=True,
-            timeout=TIMEOUTS.oc_command_default,
+        returncode, stdout, stderr = run_oc_command(
+            ["oc", "get", "deployment", deployment_name, "-n", namespace, "-o", "json"]
         )
-        if result.returncode == 0:
-            output = result.stdout.strip()
-            if not output:
-                return f"Deployment '{deployment_name}' found but no container resource info available (may have no limits/requests set)"
 
-            return (
-                f"Resource configuration for deployment '{deployment_name}':\n{output}"
+        if returncode != 0:
+            error_type = classify_oc_error(returncode, stderr)
+            return create_error_result(
+                error_type=error_type,
+                message=f"Failed to get deployment '{deployment_name}': {stderr}",
+                tool_name="execute_oc_get_deployment_resources",
+                recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
+                raw_output=stderr,
+                namespace=namespace,
             )
-        else:
-            return f"Error getting deployment resources: {result.stderr}"
+
+        try:
+            deployment_data = json.loads(stdout)
+            metadata = deployment_data.get("metadata", {})
+            spec = deployment_data.get("spec", {})
+            status = deployment_data.get("status", {})
+
+            # Simple deployment info focused on resources
+            deployment = DeploymentInfo(
+                name=metadata["name"],
+                namespace=metadata["namespace"],
+                ready_replicas=status.get("readyReplicas", 0),
+                desired_replicas=spec.get("replicas", 0),
+                available_replicas=status.get("availableReplicas", 0),
+                updated_replicas=status.get("updatedReplicas", 0),
+                strategy=spec.get("strategy", {}).get("type"),
+                conditions=[],  # Simplified - focus on resources
+            )
+
+            return ToolResult(
+                success=True,
+                data=deployment,
+                error=None,
+                tool_name="execute_oc_get_deployment_resources",
+                namespace=namespace,
+            )
+
+        except json.JSONDecodeError as e:
+            return create_error_result(
+                error_type=ErrorType.SYNTAX,
+                message=f"Failed to parse deployment JSON: {str(e)}",
+                tool_name="execute_oc_get_deployment_resources",
+                raw_output=stdout[:500],
+                namespace=namespace,
+            )
+
     except subprocess.TimeoutExpired:
-        return f"Timeout executing oc get deployment {deployment_name}"
+        return create_error_result(
+            error_type=ErrorType.TIMEOUT,
+            message=f"Command timed out for deployment '{deployment_name}'",
+            tool_name="execute_oc_get_deployment_resources",
+            recoverable=True,
+            namespace=namespace,
+        )
     except Exception as e:
-        return f"Error executing oc get deployment resources: {str(e)}"
+        return create_error_result(
+            error_type=ErrorType.UNKNOWN,
+            message=f"Unexpected error getting deployment '{deployment_name}': {str(e)}",
+            tool_name="execute_oc_get_deployment_resources",
+            namespace=namespace,
+        )
 
 
 @track_tool_usage
-def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> str:
+def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> ToolResult:
     """
-    Get deployment details with ONLY relevant fields (replicas, conditions, strategy).
-    Optimized to minimize token usage by extracting only essential information.
+    Get detailed deployment information with structured output.
 
     Args:
         deployment_name: Name of the deployment to describe
         namespace: The OpenShift namespace
 
     Returns:
-        Compact deployment information with only essential fields
+        ToolResult with DeploymentInfo (with conditions) on success or ToolError on failure
     """
     try:
-        # Get deployment info using JSON output for compact extraction
-        result = subprocess.run(
-            ["oc", "get", "deployment", deployment_name, "-n", namespace, "-o", "json"],
-            capture_output=True,
-            text=True,
-            timeout=TIMEOUTS.oc_command_default,
+        returncode, stdout, stderr = run_oc_command(
+            ["oc", "get", "deployment", deployment_name, "-n", namespace, "-o", "json"]
         )
 
-        if result.returncode != 0:
-            return f"Error getting deployment: {result.stderr}"
+        if returncode != 0:
+            error_type = classify_oc_error(returncode, stderr)
+            return create_error_result(
+                error_type=error_type,
+                message=f"Failed to describe deployment '{deployment_name}': {stderr}",
+                tool_name="execute_oc_describe_deployment",
+                recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
+                raw_output=stderr,
+                namespace=namespace,
+            )
 
-        deploy_data = json.loads(result.stdout)
+        try:
+            deployment_data = json.loads(stdout)
+            metadata = deployment_data.get("metadata", {})
+            spec = deployment_data.get("spec", {})
+            status = deployment_data.get("status", {})
 
-        # Build compact output
-        output_lines = [f"Deployment: {deploy_data['metadata']['name']}"]
-
-        # Replica status
-        spec = deploy_data.get("spec", {})
-        status = deploy_data.get("status", {})
-        output_lines.append(
-            f"Replicas: desired={spec.get('replicas', 0)} ready={status.get('readyReplicas', 0)} available={status.get('availableReplicas', 0)}"
-        )
-
-        # Strategy
-        strategy = spec.get("strategy", {}).get("type", "Unknown")
-        output_lines.append(f"Strategy: {strategy}")
-
-        # Conditions (compact, only type and status)
-        if "conditions" in status:
-            output_lines.append("\nConditions:")
-            for cond in status["conditions"]:
-                output_lines.append(
-                    f"  {cond.get('type', 'Unknown')}: {cond.get('status', 'Unknown')}"
+            # Parse deployment conditions
+            conditions = []
+            for condition in status.get("conditions", []):
+                deploy_condition = DeploymentCondition(
+                    type=condition["type"],
+                    status=condition["status"],
+                    reason=condition.get("reason"),
+                    message=condition.get("message"),
                 )
+                conditions.append(deploy_condition)
 
-        return "\n".join(output_lines)
+            deployment = DeploymentInfo(
+                name=metadata["name"],
+                namespace=metadata["namespace"],
+                ready_replicas=status.get("readyReplicas", 0),
+                desired_replicas=spec.get("replicas", 0),
+                available_replicas=status.get("availableReplicas", 0),
+                updated_replicas=status.get("updatedReplicas", 0),
+                strategy=spec.get("strategy", {}).get("type"),
+                conditions=conditions,
+            )
+
+            return ToolResult(
+                success=True,
+                data=deployment,
+                error=None,
+                tool_name="execute_oc_describe_deployment",
+                namespace=namespace,
+            )
+
+        except json.JSONDecodeError as e:
+            return create_error_result(
+                error_type=ErrorType.SYNTAX,
+                message=f"Failed to parse deployment JSON: {str(e)}",
+                tool_name="execute_oc_describe_deployment",
+                raw_output=stdout[:500],
+                namespace=namespace,
+            )
 
     except subprocess.TimeoutExpired:
-        return f"Timeout executing oc get deployment {deployment_name}"
+        return create_error_result(
+            error_type=ErrorType.TIMEOUT,
+            message=f"Command timed out for deployment '{deployment_name}'",
+            tool_name="execute_oc_describe_deployment",
+            recoverable=True,
+            namespace=namespace,
+        )
     except Exception as e:
-        return f"Error executing oc describe deployment: {str(e)}"
+        return create_error_result(
+            error_type=ErrorType.UNKNOWN,
+            message=f"Unexpected error describing deployment '{deployment_name}': {str(e)}",
+            tool_name="execute_oc_describe_deployment",
+            namespace=namespace,
+        )
 
 
 # Tool definitions for LlamaIndex
 deployment_tools = [
     FunctionTool.from_defaults(
-        fn=execute_oc_get_deployment_resources,
-        name="get_deployment_resources",
-        description="""Get deployment resource configuration (CPU/memory limits and requests).
+        fn=execute_oc_get_deployments,
+        name="execute_oc_get_deployments",
+        description="""Get all deployments in a namespace with structured output.
 
-        Purpose: Check current resource allocations to identify if they need adjustment.
+        Returns: ToolResult with:
+        - success: bool - whether operation succeeded
+        - data: List[DeploymentInfo] on success, None on error
+        - error: ToolError with type, message, recoverable, suggestion on failure
 
-        Required Inputs:
-        - deployment_name (str): Name of the deployment (e.g., "backend")
-        - namespace (str): OpenShift namespace (e.g., "my-app")
+        DeploymentInfo contains:
+        - name, namespace, ready_replicas, desired_replicas, available_replicas
+        - updated_replicas, strategy, conditions
 
-        Returns: Container resource configuration showing limits and requests for CPU and memory
-
-        Output format:
-        Container: <name>
-        Image: <image>
-        Resources:
-        <raw resource configuration JSON showing limits and requests>
-
-        When to call: When investigating resource-related alerts (OOMKilled, CPU throttling)
+        Usage:
+        result = execute_oc_get_deployments("namespace")
+        if result.success:
+            for deployment in result.data:
+                if deployment.ready_replicas < deployment.desired_replicas:
+                    # Handle deployment with unready replicas
+                    pass
+        else:
+            if result.error.recoverable:
+                # Can retry this operation
+                pass
         """,
     ),
     FunctionTool.from_defaults(
-        fn=execute_oc_get_deployments,
-        name="execute_oc_get_deployments",
-        description="""List all deployments in a namespace with their status.
+        fn=execute_oc_get_deployment_resources,
+        name="execute_oc_get_deployment_resources",
+        description="""Get deployment resource configuration with structured output.
 
-        Purpose: See deployment health and replica counts.
+        Returns: ToolResult with:
+        - success: bool - whether operation succeeded
+        - data: DeploymentInfo on success, None on error
+        - error: ToolError on failure
 
-        Required Inputs:
-        - namespace (str): OpenShift namespace to query
+        DeploymentInfo contains resource and replica information for analyzing
+        deployment configuration and scaling needs.
 
-        Returns: Compact table of deployments with NAME, READY, UP-TO-DATE, AVAILABLE, AGE
-
-        When to call: When investigating deployment-related issues or to see overall deployment health
+        Usage:
+        result = execute_oc_get_deployment_resources("deployment_name", "namespace")
+        if result.success:
+            deployment = result.data
+            # Check replica status for scaling issues
         """,
     ),
     FunctionTool.from_defaults(
         fn=execute_oc_describe_deployment,
         name="execute_oc_describe_deployment",
-        description="""Get detailed deployment information including replicas, strategy, and conditions.
+        description="""Get detailed deployment information with structured output.
 
-        Purpose: Deep dive into a specific deployment to diagnose issues.
+        Returns: ToolResult with:
+        - success: bool - whether operation succeeded
+        - data: DeploymentInfo (with detailed conditions) on success, None on error
+        - error: ToolError on failure
 
-        Required Inputs:
-        - deployment_name (str): Name of the deployment
-        - namespace (str): OpenShift namespace
+        DeploymentInfo includes deployment conditions that help diagnose:
+        - Available condition: whether replicas are available
+        - Progressing condition: whether rollout is progressing
+        - ReplicaFailure condition: if replica creation failed
 
-        Returns: Compact deployment details including:
-        - Replica status (desired, ready, available)
-        - Update strategy
-        - Conditions (Available, Progressing, etc.)
-
-        When to call: When investigating deployment rollout issues or replica problems
-        Note: Use execute_oc_get_events separately if you need event history
+        Usage:
+        result = execute_oc_describe_deployment("deployment_name", "namespace")
+        if result.success:
+            deployment = result.data
+            failed_conditions = [c for c in deployment.conditions if c.status != "True"]
+            # Analyze failed conditions for deployment issues
         """,
     ),
 ]
