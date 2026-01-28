@@ -3,8 +3,8 @@
 # Cleanup script for service dependency test scenario
 set -e
 
-NAMESPACE="integration-test-ofridman"
-HELM_RELEASE="dependency-demo"
+NAMESPACE=${1:-integration-test-ofridman}
+HELM_RELEASE=${2:-dependency-demo}
 
 echo "========================================"
 echo "Service Dependency Test Cleanup"
