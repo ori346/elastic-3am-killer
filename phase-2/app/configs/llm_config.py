@@ -11,6 +11,14 @@ from typing import Optional
 
 from llama_index.llms.openai_like import OpenAILike
 
+# Try to import Ollama - only available in development environments
+try:
+    from llama_index.llms.ollama import Ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    Ollama = None  # Prevent NameError
+
 
 @dataclass
 class AgentLLMConfig:
@@ -28,6 +36,18 @@ class AgentLLMConfig:
         """Set default headers if not provided."""
         if self.default_headers is None:
             self.default_headers = {"Content-Type": "application/json"}
+
+
+def is_ollama_endpoint(api_base: str) -> bool:
+    if not api_base:
+        return False
+
+    api_base_lower = api_base.lower()
+    return (
+        ":11434" in api_base_lower or
+        "ollama" in api_base_lower or
+        api_base_lower.endswith("/v1") and "11434" in api_base_lower
+    )
 
 
 def get_agent_api_config(agent_prefix: str) -> tuple[str, str, str]:
@@ -53,9 +73,9 @@ def create_agent_llm(
     temperature: float,
     system_prompt: str | None = None,
     default_headers: dict = {"Content-Type": "application/json"},
-) -> OpenAILike:
+):
     """
-    Create an OpenAI-like LLM instance for an agent.
+    Create an LLM instance for an agent (either Ollama or OpenAI-like).
 
     Args:
         agent_prefix: Agent prefix for environment variables (e.g., "WORKFLOW_COORDINATOR")
@@ -65,23 +85,43 @@ def create_agent_llm(
         default_headers: Optional default headers (uses default if None)
 
     Returns:
-        Configured OpenAILike instance
+        Configured LLM instance (Ollama or OpenAILike)
     """
     api_base, api_key, model = get_agent_api_config(agent_prefix)
 
-    return OpenAILike(
-        api_base=api_base,
-        api_key=api_key,
-        model=model,
-        is_chat_model=True,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        default_headers=default_headers,
-        system_prompt=system_prompt,
-    )
+    # Check if this is an Ollama endpoint and if Ollama package is available
+    if is_ollama_endpoint(api_base) and OLLAMA_AVAILABLE:
+        # Development: Use native Ollama LLM client
+        # Remove both /v1 and /api suffixes as Ollama client adds these automatically
+        base_url = api_base.replace("/v1", "").replace("/api", "").rstrip("/")
+
+        return Ollama(
+            model=model,
+            base_url=base_url,
+            temperature=temperature,
+            # Note: Ollama handles max tokens internally, but we can set context_window
+            context_window=8192,  # Llama3.2 context window
+            request_timeout=90.0,
+            additional_kwargs={
+                "num_predict": max_tokens,  # Ollama's parameter for max tokens
+            },
+        )
+    else:
+        # Production OR non-Ollama: Use OpenAI-like LLM for all endpoints
+        # In production, even Ollama URLs are treated as OpenAI-compatible endpoints
+        return OpenAILike(
+            api_base=api_base,
+            api_key=api_key,
+            model=model,
+            is_chat_model=True,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            default_headers=default_headers,
+            system_prompt=system_prompt,
+        )
 
 
-def create_workflow_coordinator_llm(max_tokens: int, temperature: float) -> OpenAILike:
+def create_workflow_coordinator_llm(max_tokens: int, temperature: float):
     """
     Create LLM for Workflow Coordinator with predefined system prompt.
 
@@ -90,7 +130,7 @@ def create_workflow_coordinator_llm(max_tokens: int, temperature: float) -> Open
         temperature: Temperature for the agent
 
     Returns:
-        Configured OpenAILike instance for Workflow Coordinator
+        Configured LLM instance for Workflow Coordinator (Ollama or OpenAILike)
     """
     system_prompt = (
         "You are helping the AI Orchestrator Agent to remediate alerts in OpenShift cluster. "
@@ -108,7 +148,7 @@ def create_workflow_coordinator_llm(max_tokens: int, temperature: float) -> Open
 
 def create_alert_remediation_specialist_llm(
     max_tokens: int, temperature: float
-) -> OpenAILike:
+):
     """
     Create LLM for Alert Remediation Specialist with predefined system prompt.
 
@@ -117,7 +157,7 @@ def create_alert_remediation_specialist_llm(
         temperature: Temperature for the agent
 
     Returns:
-        Configured OpenAILike instance for Alert Remediation Specialist
+        Configured LLM instance for Alert Remediation Specialist (Ollama or OpenAILike)
     """
     system_prompt = (
         "You are helping the AI Remediate Agent to remediate alerts in OpenShift cluster. "
@@ -135,7 +175,7 @@ def create_alert_remediation_specialist_llm(
 
 def create_incident_report_generator_llm(
     max_tokens: int, temperature: float
-) -> OpenAILike:
+):
     """
     Create LLM for Incident Report Generator (no system prompt needed as it's set in ReActAgent).
 
@@ -144,7 +184,7 @@ def create_incident_report_generator_llm(
         temperature: Temperature for the agent
 
     Returns:
-        Configured OpenAILike instance for Incident Report Generator
+        Configured LLM instance for Incident Report Generator (Ollama or OpenAILike)
     """
     # Incident Report Generator doesn't use system_prompt in LLM config
     # The system prompt is handled by the ReActAgent itself

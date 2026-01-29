@@ -11,5 +11,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "llama-index-utils-workflow"
+    "llama-index-utils-workflow",
+    "llama-index-llms-ollama"
 ]
