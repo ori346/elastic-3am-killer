@@ -7,7 +7,7 @@ into a comprehensive ToolResult system.
 """
 
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -121,6 +121,28 @@ class DeploymentInfo(BaseModel):
     )
     conditions: List[DeploymentCondition] = Field(
         default_factory=list, description="Deployment conditions"
+    )
+
+
+class ContainerResources(BaseModel):
+    """Container resource information using dict storage"""
+
+    name: str = Field(description="Container name")
+    resources: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Resource limits and requests structure from Kubernetes spec"
+    )
+
+
+class DeploymentResources(BaseModel):
+    """Deployment resource information focused on CPU, memory and replicas"""
+
+    name: str = Field(description="Deployment name")
+    namespace: str = Field(description="Deployment namespace")
+    ready_replicas: int = Field(0, description="Number of ready replicas")
+    desired_replicas: int = Field(description="Number of desired replicas")
+    containers: List[ContainerResources] = Field(
+        default_factory=list, description="Per-container resource information"
     )
 
 
