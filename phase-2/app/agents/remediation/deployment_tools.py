@@ -12,9 +12,11 @@ from llama_index.core.tools import FunctionTool
 
 from .models import (
     DeploymentCondition,
-    DeploymentInfo,
     DeploymentResources,
     ContainerResources,
+    DeploymentListResult,
+    DeploymentSummary,
+    DeploymentDetail,
     ErrorType,
     ToolResult,
 )
@@ -22,20 +24,33 @@ from .tool_tracker import track_tool_usage
 from .utils import classify_oc_error, create_error_result, run_oc_command
 
 
+def _extract_strategy_details(deployment_spec: dict) -> tuple[str, str, str]:
+    """Extract detailed rollout strategy configuration."""
+    strategy = deployment_spec.get("strategy", {})
+    strategy_type = strategy.get("type")
+
+    rolling_update = strategy.get("rollingUpdate", {})
+    max_surge = rolling_update.get("maxSurge")
+    max_unavailable = rolling_update.get("maxUnavailable")
+
+    return strategy_type, max_surge, max_unavailable
+
+
+def _extract_deployment_selectors(deployment_spec: dict) -> dict:
+    """Extract selector labels used for pod matching."""
+    return deployment_spec.get("selector", {}).get("matchLabels", {})
+
+
 @track_tool_usage
 def execute_oc_get_deployments(namespace: str) -> ToolResult:
     """
-    Get basic deployment listing information for all deployments in a namespace.
-
-    Returns lightweight deployment data similar to 'oc get deployments' - name, replica counts,
-    and strategy. Does NOT include detailed conditions.
-    Use execute_oc_describe_deployment for detailed information about a specific deployment.
+    List deployments in namespace with basic status (replica counts, strategy).
 
     Args:
-        namespace: The OpenShift namespace to query
+        namespace: Target OpenShift namespace
 
     Returns:
-        ToolResult with List[DeploymentInfo] containing basic deployment information on success
+        DeploymentListResult with deployment list or ToolError
     """
     try:
         returncode, stdout, stderr = run_oc_command(
@@ -43,7 +58,7 @@ def execute_oc_get_deployments(namespace: str) -> ToolResult:
         )
 
         if returncode != 0:
-            error_type = classify_oc_error(returncode, stderr)
+            error_type = classify_oc_error(stderr)
             recoverable = error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK]
             return create_error_result(
                 error_type=error_type,
@@ -63,25 +78,19 @@ def execute_oc_get_deployments(namespace: str) -> ToolResult:
                 spec = deployment_data.get("spec", {})
                 status = deployment_data.get("status", {})
 
-                # Create lightweight DeploymentInfo with basic information only
-                deployment = DeploymentInfo(
+                # Create streamlined DeploymentSummary with essential information only
+                deployment = DeploymentSummary(
                     name=metadata["name"],
-                    namespace=metadata["namespace"],
                     ready_replicas=status.get("readyReplicas", 0),
                     desired_replicas=spec.get("replicas", 0),
                     available_replicas=status.get("availableReplicas", 0),
                     updated_replicas=status.get("updatedReplicas", 0),
-                    strategy=spec.get("strategy", {}).get("type"),
-                    conditions=[],  # Empty - use execute_oc_describe_deployment for detailed conditions
                 )
                 deployments.append(deployment)
 
-            return ToolResult(
-                success=True,
-                data=deployments,
-                error=None,
-                tool_name="execute_oc_get_deployments",
+            return DeploymentListResult(
                 namespace=namespace,
+                deployments=deployments,
             )
 
         except json.JSONDecodeError as e:
@@ -115,14 +124,14 @@ def execute_oc_get_deployment_resources(
     deployment_name: str, namespace: str
 ) -> ToolResult:
     """
-    Get deployment container resource configuration with structured output.
+    Get deployment container resource limits and requests.
 
     Args:
-        deployment_name: Name of the deployment
-        namespace: The OpenShift namespace
+        deployment_name: Deployment name
+        namespace: Target namespace
 
     Returns:
-        ToolResult with DeploymentInfo (focused on resource configuration) on success or ToolError on failure
+        DeploymentResources with per-container resource data or ToolError
     """
     try:
         returncode, stdout, stderr = run_oc_command(
@@ -130,7 +139,7 @@ def execute_oc_get_deployment_resources(
         )
 
         if returncode != 0:
-            error_type = classify_oc_error(returncode, stderr)
+            error_type = classify_oc_error(stderr)
             return create_error_result(
                 error_type=error_type,
                 message=f"Failed to get deployment '{deployment_name}': {stderr}",
@@ -154,24 +163,16 @@ def execute_oc_get_deployment_resources(
             for container_spec in pod_spec.get("containers", []):
                 container_resource = ContainerResources(
                     name=container_spec["name"],
-                    resources=container_spec.get("resources", {})
+                    resources=container_spec.get("resources", {}),
                 )
                 containers.append(container_resource)
 
-            deployment_resources = DeploymentResources(
+            return DeploymentResources(
+                namespace=namespace,
                 name=metadata["name"],
-                namespace=metadata["namespace"],
                 ready_replicas=status.get("readyReplicas", 0),
                 desired_replicas=spec.get("replicas", 0),
                 containers=containers,
-            )
-
-            return ToolResult(
-                success=True,
-                data=deployment_resources,
-                error=None,
-                tool_name="execute_oc_get_deployment_resources",
-                namespace=namespace,
             )
 
         except json.JSONDecodeError as e:
@@ -203,14 +204,14 @@ def execute_oc_get_deployment_resources(
 @track_tool_usage
 def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> ToolResult:
     """
-    Get detailed deployment information with structured output.
+    Get comprehensive deployment information for debugging purposes.
 
     Args:
-        deployment_name: Name of the deployment to describe
-        namespace: The OpenShift namespace
+        deployment_name: Deployment name
+        namespace: Target namespace
 
     Returns:
-        ToolResult with DeploymentInfo (with conditions) on success or ToolError on failure
+        DeploymentDetail with comprehensive deployment data for debugging or ToolError
     """
     try:
         returncode, stdout, stderr = run_oc_command(
@@ -218,7 +219,7 @@ def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> Tool
         )
 
         if returncode != 0:
-            error_type = classify_oc_error(returncode, stderr)
+            error_type = classify_oc_error(stderr)
             return create_error_result(
                 error_type=error_type,
                 message=f"Failed to describe deployment '{deployment_name}': {stderr}",
@@ -245,23 +246,28 @@ def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> Tool
                 )
                 conditions.append(deploy_condition)
 
-            deployment = DeploymentInfo(
+            # Extract detailed strategy information
+            strategy_type, max_surge, max_unavailable = _extract_strategy_details(spec)
+
+            # Extract selector labels
+            selector_labels = _extract_deployment_selectors(spec)
+
+            return DeploymentDetail(
+                namespace=namespace,
                 name=metadata["name"],
-                namespace=metadata["namespace"],
                 ready_replicas=status.get("readyReplicas", 0),
                 desired_replicas=spec.get("replicas", 0),
                 available_replicas=status.get("availableReplicas", 0),
                 updated_replicas=status.get("updatedReplicas", 0),
-                strategy=spec.get("strategy", {}).get("type"),
+                unavailable_replicas=status.get("unavailableReplicas", 0),
+                strategy_type=strategy_type,
+                max_surge=max_surge,
+                max_unavailable=max_unavailable,
+                observed_generation=status.get("observedGeneration"),
+                progress_deadline_seconds=spec.get("progressDeadlineSeconds"),
+                labels=metadata.get("labels", {}),
+                selector_labels=selector_labels,
                 conditions=conditions,
-            )
-
-            return ToolResult(
-                success=True,
-                data=deployment,
-                error=None,
-                tool_name="execute_oc_describe_deployment",
-                namespace=namespace,
             )
 
         except json.JSONDecodeError as e:
@@ -297,90 +303,49 @@ deployment_tools = [
         name="execute_oc_get_deployments",
         description="""List all deployments in a namespace with basic status information.
 
-        Purpose: Get a lightweight overview of all deployments in a namespace, similar to 'oc get deployments'.
-
         Args:
-        - namespace: OpenShift namespace to query
+        - namespace (str): OpenShift namespace to query
 
-        Returns: ToolResult with List[DeploymentInfo] containing basic information:
-        - name, namespace, ready_replicas, desired_replicas, available_replicas
-        - updated_replicas: Number of replicas updated to latest revision
-        - strategy: Deployment strategy (RollingUpdate, Recreate)
-        - Empty conditions array (use execute_oc_describe_deployment for detailed conditions)
+        Returns:
+        - DeploymentListResult: Contains list of DeploymentSummary objects with name, replica counts, and strategy
 
-        When to use:
-        - Get overview of all deployments in a namespace
-        - Identify deployments with scaling issues (ready != desired replicas)
-        - Quick health check of deployment replica status
-        - Before investigating specific deployments in detail
-
-        Note: For detailed deployment conditions and troubleshooting, use execute_oc_describe_deployment
-
-        Example: If ready_replicas < desired_replicas, investigate further with execute_oc_describe_deployment
+        Use for: Deployment overview, scaling status checks, identifying problematic deployments
         """,
     ),
     FunctionTool.from_defaults(
         fn=execute_oc_get_deployment_resources,
         name="execute_oc_get_deployment_resources",
-        description="""Get deployment container resource configuration (CPU, memory, GPU).
-
-        Purpose: Analyze resource limits and requests for deployment containers.
+        description="""Get deployment container resource configuration.
 
         Args:
-        - deployment_name: Name of the deployment to analyze
-        - namespace: OpenShift namespace
+        - deployment_name (str): Name of the deployment to analyze
+        - namespace (str): OpenShift namespace containing the deployment
 
-        Returns: ToolResult with DeploymentResources containing:
-        - name, namespace, ready_replicas, desired_replicas
-        - containers: List[ContainerResources] with per-container resource details:
-          - CPU limits/requests (e.g., "500m", "2")
-          - Memory limits/requests (e.g., "128Mi", "2Gi")
-          - GPU limits/requests (e.g., "1", "2" from nvidia.com/gpu, amd.com/gpu)
+        Returns:
+        - DeploymentResources: Contains per-container resource limits/requests (CPU, memory, GPU)
 
-        Features:
-        - Supports all major GPU vendors (NVIDIA, AMD, Intel)
-        - Shows both limits (maximum) and requests (guaranteed)
-        - Per-container breakdown for multi-container deployments
-
-        When to use:
-        - Investigate resource-related alerts (OOMKilled, CPU throttling)
-        - Check if containers have appropriate resource limits
-        - Analyze resource allocation before scaling decisions
-        - Diagnose performance issues related to resource constraints
-
-        Example: Container with no memory limit may cause OOMKilled issues
+        Use for: Resource analysis, OOMKilled investigations, CPU throttling issues, scaling decisions
         """,
     ),
     FunctionTool.from_defaults(
         fn=execute_oc_describe_deployment,
         name="execute_oc_describe_deployment",
-        description="""Get detailed deployment information with conditions for troubleshooting.
-
-        Purpose: Deep dive into a specific deployment's status and conditions.
+        description="""Get comprehensive deployment information for debugging purposes.
 
         Args:
-        - deployment_name: Name of the deployment to analyze
-        - namespace: OpenShift namespace
+        - deployment_name (str): Name of the deployment to analyze
+        - namespace (str): OpenShift namespace containing the deployment
 
-        Returns: ToolResult with DeploymentInfo containing:
-        - Basic info: name, namespace, replica counts, strategy
-        - conditions: List[DeploymentCondition] with detailed status information:
-          - Available: Whether replicas are available to serve requests
-          - Progressing: Whether rollout is progressing successfully
-          - ReplicaFailure: If replica creation has failed
+        Returns:
+        - DeploymentDetail: Contains detailed deployment information including:
+          * Basic replica counts (ready, desired, available, updated, unavailable)
+          * Strategy details (type, maxSurge, maxUnavailable)
+          * Rollout status (observedGeneration, progressDeadlineSeconds)
+          * Configuration context (labels, selector labels)
+          * Deployment conditions with full details
 
-        Features:
-        - Detailed condition analysis for deployment troubleshooting
-        - Replica count breakdown (ready, available, updated, desired)
-        - Deployment strategy information (RollingUpdate vs Recreate)
-
-        When to use:
-        - Investigate specific deployment failures or stuck rollouts
-        - Analyze why a deployment isn't reaching desired replica count
-        - Check deployment conditions when pods aren't starting
-        - Debug rollout issues and deployment strategy problems
-
-        Example: Progressing=False may indicate resource constraints or image pull failures
+        Use for: Advanced debugging of deployment failures, stuck rollouts, scaling issues,
+        rollout strategy problems, and deployment configuration troubleshooting
         """,
     ),
 ]

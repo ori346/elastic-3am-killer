@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 
 from configs import TIMEOUTS
 
-from .models import ErrorType, ToolError, ToolResult
+from .models import ErrorType, ToolError
 
 
 def run_oc_command(
@@ -199,7 +199,7 @@ def execute_oc_command_with_error_handling(
 # ===== ToolResult System Utilities =====
 
 
-def classify_oc_error(returncode: int, stderr: str) -> ErrorType:
+def classify_oc_error(stderr: str) -> ErrorType:
     """
     Classify oc command errors into structured types for programmatic handling.
     """
@@ -297,6 +297,31 @@ def format_ready_status(container_statuses: List[Dict]) -> str:
     return f"{ready_count}/{len(container_statuses)}"
 
 
+def create_tool_error(
+    error_type: ErrorType,
+    message: str,
+    tool_name: str,
+    recoverable: bool = False,
+    suggestion: Optional[str] = None,
+    raw_output: Optional[str] = None,
+    namespace: Optional[str] = None,
+) -> ToolError:
+    """Create a ToolError with all necessary context."""
+    if suggestion is None:
+        suggestion = get_error_suggestion(error_type, namespace)
+
+    return ToolError(
+        type=error_type,
+        message=message,
+        recoverable=recoverable,
+        suggestion=suggestion,
+        raw_output=raw_output,
+        tool_name=tool_name,
+        namespace=namespace,
+    )
+
+
+# Backward compatibility alias - will be removed after tool functions are updated
 def create_error_result(
     error_type: ErrorType,
     message: str,
@@ -305,19 +330,14 @@ def create_error_result(
     suggestion: Optional[str] = None,
     raw_output: Optional[str] = None,
     namespace: Optional[str] = None,
-) -> ToolResult:
-    """Create a ToolResult for an error condition."""
-    if suggestion is None:
-        suggestion = get_error_suggestion(error_type, namespace)
-
-    error = ToolError(
-        type=error_type,
+) -> ToolError:
+    """Backward compatibility alias for create_tool_error."""
+    return create_tool_error(
+        error_type=error_type,
         message=message,
+        tool_name=tool_name,
         recoverable=recoverable,
         suggestion=suggestion,
         raw_output=raw_output,
-    )
-
-    return ToolResult(
-        success=False, data=None, error=error, tool_name=tool_name, namespace=namespace
+        namespace=namespace,
     )

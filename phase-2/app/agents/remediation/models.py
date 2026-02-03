@@ -9,7 +9,7 @@ into a comprehensive ToolResult system.
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 # Error Handling Models
@@ -26,7 +26,14 @@ class ErrorType(str, Enum):
     UNKNOWN = "unknown"
 
 
-class ToolError(BaseModel):
+class ToolResult(BaseModel):
+    """Base class for tool execution results"""
+
+    tool_name: str = Field(description="Name of the tool that was executed")
+    namespace: Optional[str] = Field(None, description="Target namespace if applicable")
+
+
+class ToolError(ToolResult):
     """Structured error information with recovery guidance"""
 
     type: ErrorType = Field(description="Category of error for programmatic handling")
@@ -35,63 +42,6 @@ class ToolError(BaseModel):
     suggestion: str = Field(description="Recommended action to resolve the error")
     raw_output: Optional[str] = Field(
         None, description="Original command output for debugging"
-    )
-
-
-# Core Resource Models
-class ResourceRequirements(BaseModel):
-    """Container resource requirements (CPU and memory)"""
-
-    cpu: Optional[str] = Field(None, description="CPU limit/request (e.g., '500m')")
-    memory: Optional[str] = Field(
-        None, description="Memory limit/request (e.g., '256Mi')"
-    )
-
-
-class ContainerInfo(BaseModel):
-    """Container configuration and runtime status"""
-
-    name: str = Field(description="Container name")
-    image: str = Field(description="Container image with tag")
-    ready: bool = Field(description="Whether container is ready to serve requests")
-    restart_count: int = Field(0, description="Number of container restarts")
-    state: str = Field(description="Container state: running, waiting, terminated")
-    limits: Optional[ResourceRequirements] = Field(None, description="Resource limits")
-    requests: Optional[ResourceRequirements] = Field(
-        None, description="Resource requests"
-    )
-
-
-class PodCondition(BaseModel):
-    """Pod condition information (PodScheduled, Ready, etc.)"""
-
-    type: str = Field(
-        description="Condition type: PodScheduled, Initialized, Ready, ContainersReady"
-    )
-    status: str = Field(description="Condition status: True, False, Unknown")
-    reason: Optional[str] = Field(None, description="Reason for condition state")
-
-
-class PodInfo(BaseModel):
-    """Complete pod information including containers and conditions"""
-
-    name: str = Field(description="Pod name")
-    namespace: str = Field(description="Pod namespace")
-    status: str = Field(
-        description="Pod phase: Running, Pending, Failed, Succeeded, Unknown"
-    )
-    ready: str = Field(description="Ready containers ratio: '2/2', '0/1', etc.")
-    restarts: int = Field(0, description="Total restarts across all containers")
-    age: str = Field(description="Human readable age: '2d', '5h', '30m'")
-    node: Optional[str] = Field(None, description="Node where pod is scheduled")
-    service_account: str = Field(
-        default="default", description="Service account used by pod"
-    )
-    containers: List[ContainerInfo] = Field(
-        default_factory=list, description="Container details"
-    )
-    conditions: List[PodCondition] = Field(
-        default_factory=list, description="Pod conditions"
     )
 
 
@@ -107,38 +57,23 @@ class DeploymentCondition(BaseModel):
     message: Optional[str] = Field(None, description="Human readable message")
 
 
-class DeploymentInfo(BaseModel):
-    """Deployment status and configuration information"""
-
-    name: str = Field(description="Deployment name")
-    namespace: str = Field(description="Deployment namespace")
-    ready_replicas: int = Field(0, description="Number of ready replicas")
-    desired_replicas: int = Field(description="Number of desired replicas")
-    available_replicas: int = Field(0, description="Number of available replicas")
-    updated_replicas: int = Field(0, description="Number of updated replicas")
-    strategy: Optional[str] = Field(
-        None, description="Deployment strategy: RollingUpdate, Recreate"
-    )
-    conditions: List[DeploymentCondition] = Field(
-        default_factory=list, description="Deployment conditions"
-    )
-
-
 class ContainerResources(BaseModel):
     """Container resource information using dict storage"""
 
     name: str = Field(description="Container name")
     resources: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Resource limits and requests structure from Kubernetes spec"
+        description="Resource limits and requests structure from OpenShift spec",
     )
 
 
-class DeploymentResources(BaseModel):
+class DeploymentResources(ToolResult):
     """Deployment resource information focused on CPU, memory and replicas"""
 
+    tool_name: str = Field(
+        default="execute_oc_get_deployment_resources", description="Name of the tool"
+    )
     name: str = Field(description="Deployment name")
-    namespace: str = Field(description="Deployment namespace")
     ready_replicas: int = Field(0, description="Number of ready replicas")
     desired_replicas: int = Field(description="Number of desired replicas")
     containers: List[ContainerResources] = Field(
@@ -166,6 +101,17 @@ class OpenShiftEvent(BaseModel):
     count: int = Field(1, description="Number of times this event occurred")
 
 
+class OpenShiftEvents(ToolResult):
+    """Collection of OpenShift events from a namespace or resource"""
+
+    tool_name: str = Field(
+        default="execute_oc_get_events", description="Name of the tool"
+    )
+    events: List[OpenShiftEvent] = Field(
+        default_factory=list, description="List of retrieved OpenShift events"
+    )
+
+
 # Log Models
 class LogEntry(BaseModel):
     """Individual log entry with metadata"""
@@ -179,68 +125,156 @@ class LogEntry(BaseModel):
     )
 
 
-class LogResponse(BaseModel):
-    """Collection of log entries from a pod/container"""
+# Context Management Results
+class AlertDiagnosticsResult(ToolResult):
+    """Result of reading alert diagnostics from context"""
 
-    pod_name: str = Field(description="Pod that logs were retrieved from")
-    namespace: str = Field(description="Namespace of the pod")
-    container: Optional[str] = Field(
-        None, description="Specific container, if filtered"
-    )
-    pattern_filter: Optional[str] = Field(
-        None, description="Pattern used to filter logs"
-    )
-    total_lines: int = Field(description="Total number of log lines available")
-    entries: List[LogEntry] = Field(
-        default_factory=list, description="Retrieved log entries"
+    alert_diagnostics: Dict[str, str] = Field(
+        description="Alert diagnostic information"
     )
 
 
-class ToolResult(BaseModel):
-    """
-    Comprehensive tool execution result combining structured data and error handling.
+class RemediationPlanResult(ToolResult):
+    """Result of writing a remediation plan to context"""
 
-    This unified result type provides:
-    - Structured data on success
-    - Structured error information on failure
-    """
+    plan_written: bool = Field(description="Whether the plan was written to context")
+    next_step: str = Field(description="Next step in the workflow")
 
-    success: bool = Field(description="Whether the tool executed successfully")
-    data: Optional[Any] = Field(
-        None, description="Structured data on success, None on error"
+
+# Streamlined Output Models (no None fields)
+class DeploymentSummary(BaseModel):
+    """Deployment summary without optional None fields"""
+
+    name: str = Field(description="Deployment name")
+    ready_replicas: int = Field(description="Number of ready replicas")
+    desired_replicas: int = Field(description="Number of desired replicas")
+    available_replicas: int = Field(description="Number of available replicas")
+    updated_replicas: int = Field(description="Number of updated replicas")
+
+
+class PodSummary(BaseModel):
+    """Pod summary without optional None fields"""
+
+    name: str = Field(description="Pod name")
+    status: str = Field(description="Pod phase")
+    ready: str = Field(description="Ready containers ratio")
+    restarts: int = Field(description="Total restarts")
+    age: str = Field(description="Human readable age")
+
+
+# Streamlined Result Types
+class DeploymentListResult(ToolResult):
+    """Streamlined deployment listing result"""
+
+    tool_name: str = Field(
+        default="execute_oc_get_deployments", description="Name of the tool"
     )
-    error: Optional[ToolError] = Field(
-        None, description="Error details on failure, None on success"
+    deployments: List[DeploymentSummary] = Field(description="List of deployments")
+
+
+class PodListResult(ToolResult):
+    """Streamlined pod listing result"""
+
+    tool_name: str = Field(
+        default="execute_oc_get_pods", description="Name of the tool"
     )
-    tool_name: str = Field(description="Name of the tool that was executed")
-    namespace: Optional[str] = Field(None, description="Target namespace if applicable")
+    pods: List[PodSummary] = Field(description="List of pods")
 
-    @model_validator(mode="after")
-    def validate_success_error_consistency(self):
-        """Validate that success and error fields are consistent"""
-        if self.success and self.error is not None:
-            raise ValueError("ToolResult cannot have success=True and an error")
-        if not self.success and self.error is None:
-            raise ValueError("ToolResult with success=False must have an error")
-        return self
 
-    class Config:
-        # Allow Any for data field to accommodate different model types
-        arbitrary_types_allowed = True
+class LogResult(ToolResult):
+    """Streamlined log response"""
 
-    # def __str__(self) -> str:
-    #     """Human readable representation of the tool result"""
-    #     if self.success:
-    #         return f"ToolResult(success=True, tool={self.tool_name})"
-    #     else:
-    #         return f"ToolResult(success=False, tool={self.tool_name}, error={self.error.type})"
+    tool_name: str = Field(default="execute_oc_logs", description="Name of the tool")
+    pod_name: str = Field(description="Pod name")
+    total_lines: int = Field(description="Number of log lines")
+    entries: List[LogEntry] = Field(default_factory=list, description="Log entries")
 
-    @property
-    def is_recoverable_error(self) -> bool:
-        """Check if this is a recoverable error that can be retried"""
-        return not self.success and self.error is not None and self.error.recoverable
 
-    @property
-    def error_type(self) -> Optional[ErrorType]:
-        """Get the error type if this result represents a failure"""
-        return self.error.type if not self.success and self.error else None
+# Enhanced Detailed Models for Debugging
+class ContainerDetail(BaseModel):
+    """Enhanced container information for debugging"""
+
+    # Basic container information
+    name: str = Field(description="Container name")
+    image: str = Field(description="Container image with tag")
+    ready: bool = Field(description="Whether container is ready")
+    restart_count: int = Field(description="Number of container restarts")
+    state: str = Field(description="Container state: running, waiting, terminated")
+
+    # Resource Information (debugging resource issues)
+    limits: Optional[Dict[str, str]] = Field(None, description="Resource limits (CPU, memory)")
+    requests: Optional[Dict[str, str]] = Field(None, description="Resource requests (CPU, memory)")
+
+    # Health Check Configuration (debugging probe failures)
+    liveness_probe: Optional[Dict[str, Any]] = Field(None, description="Liveness probe configuration")
+    readiness_probe: Optional[Dict[str, Any]] = Field(None, description="Readiness probe configuration")
+
+    # State Details (debugging crashes/failures)
+    exit_code: Optional[int] = Field(None, description="Container exit code if terminated")
+    termination_reason: Optional[str] = Field(None, description="Reason for container termination")
+    termination_message: Optional[str] = Field(None, description="Container termination message")
+
+    # Configuration (debugging env/networking issues)
+    ports: List[Dict[str, Any]] = Field(default_factory=list, description="Container port configurations")
+    environment: List[Dict[str, str]] = Field(default_factory=list, description="Environment variables")
+
+
+class PodDetail(BaseModel):
+    """Enhanced pod information for debugging"""
+
+    # Basic pod information
+    name: str = Field(description="Pod name")
+    status: str = Field(description="Pod phase")
+    ready: str = Field(description="Ready containers ratio")
+    restarts: int = Field(description="Total container restarts")
+
+    # Network Information (debugging connectivity)
+    pod_ip: Optional[str] = Field(None, description="Pod IP address")
+    host_ip: Optional[str] = Field(None, description="Host IP address")
+
+    # Configuration Context (debugging scheduling/security)
+    labels: Dict[str, str] = Field(default_factory=dict, description="Pod labels")
+    annotations: Dict[str, str] = Field(default_factory=dict, description="Pod annotations")
+    service_account: Optional[str] = Field(None, description="Service account used by pod")
+    security_context: Optional[Dict[str, Any]] = Field(None, description="Pod security context")
+
+    # Ownership (debugging creation/lifecycle)
+    owner_references: List[Dict[str, str]] = Field(default_factory=list, description="Pod owner references")
+
+
+class PodDetailedResult(ToolResult):
+    """Detailed pod information for debugging"""
+
+    tool_name: str = Field(default="execute_oc_get_pod", description="Name of the tool")
+    pod: PodDetail = Field(description="Detailed pod information")
+    containers: List[ContainerDetail] = Field(default_factory=list, description="Detailed container information")
+
+
+class DeploymentDetail(ToolResult):
+    """Enhanced deployment information for debugging"""
+
+    tool_name: str = Field(default="execute_oc_describe_deployment", description="Name of the tool")
+
+    # Basic deployment information
+    name: str = Field(description="Deployment name")
+    ready_replicas: int = Field(0, description="Number of ready replicas")
+    desired_replicas: int = Field(description="Number of desired replicas")
+    available_replicas: int = Field(0, description="Number of available replicas")
+    updated_replicas: int = Field(0, description="Number of updated replicas")
+    unavailable_replicas: int = Field(0, description="Number of unavailable replicas")
+
+    # Strategy Details (debugging rollout problems)
+    strategy_type: Optional[str] = Field(None, description="Deployment strategy type")
+    max_surge: Optional[str] = Field(None, description="Maximum surge during rollout")
+    max_unavailable: Optional[str] = Field(None, description="Maximum unavailable during rollout")
+
+    # Rollout Status (debugging stuck deployments)
+    observed_generation: Optional[int] = Field(None, description="Observed generation for rollout tracking")
+    progress_deadline_seconds: Optional[int] = Field(None, description="Progress deadline for rollouts")
+
+    # Configuration Context
+    labels: Dict[str, str] = Field(default_factory=dict, description="Deployment labels")
+    selector_labels: Dict[str, str] = Field(default_factory=dict, description="Pod selector labels")
+
+    # Conditions (enhanced with more detail)
+    conditions: List[DeploymentCondition] = Field(default_factory=list, description="Deployment conditions")

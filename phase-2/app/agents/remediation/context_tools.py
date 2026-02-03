@@ -8,7 +8,7 @@ to shared context for coordination between agents.
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
 
-from .models import ToolResult
+from .models import AlertDiagnosticsResult, ToolResult, RemediationPlanResult
 from .tool_tracker import reset_tool_usage_counter
 from .utils import ErrorType, create_error_result
 
@@ -28,7 +28,7 @@ async def read_alert_diagnostics_data(ctx: Context) -> ToolResult:
     Read alert information from shared context with structured output.
 
     Returns:
-        ToolResult with dict containing alert diagnostics on success
+        AlertDiagnosticsResult with alert diagnostics dict on success
     """
     try:
         state = await ctx.store.get("state")
@@ -63,7 +63,7 @@ async def read_alert_diagnostics_data(ctx: Context) -> ToolResult:
                 suggestion="Ensure Workflow Coordinator has stored complete alert information including namespace and alert name before starting investigation",
             )
 
-        # Build response dict (same structure as before)
+        # Build diagnostics dict
         diagnostics_dict = {
             "namespace": namespace,
             "alert_name": alert_name,
@@ -72,12 +72,10 @@ async def read_alert_diagnostics_data(ctx: Context) -> ToolResult:
             "recommendation": recommendation,
         }
 
-        return ToolResult(
-            success=True,
-            data=diagnostics_dict,
-            error=None,
+        return AlertDiagnosticsResult(
             tool_name="read_alert_diagnostics_data",
             namespace=namespace if namespace != "unknown" else None,
+            alert_diagnostics=diagnostics_dict,
         )
 
     except Exception as e:
@@ -96,7 +94,7 @@ async def write_remediation_plan(
     Write remediation plan with validated oc commands to shared context.
 
     Returns:
-        ToolResult with dict containing plan metadata on success
+        RemediationPlanResult with plan status on success
     """
     try:
         # Existing validation logic
@@ -127,26 +125,15 @@ async def write_remediation_plan(
         # Reset tool usage counter for the next invocation (existing logic)
         reset_tool_usage_counter()
 
-        # Store remediation plan (existing logic)
+        # Store remediation plan
         plan = {"explanation": explanation, "commands": commands}
         async with ctx.store.edit_state() as ctx_state:
             ctx_state["state"]["remediation_plan"] = plan
 
-        # Build response with metadata
-        plan_metadata = {
-            "plan_stored": True,
-            "explanation": explanation,
-            "commands_count": len(commands),
-            "commands": commands,
-            "next_step": "Handoff to Workflow Coordinator for execution - This is MANDATORY",
-        }
-
-        return ToolResult(
-            success=True,
-            data=plan_metadata,
-            error=None,
+        return RemediationPlanResult(
             tool_name="write_remediation_plan",
-            namespace=None,  # Context tools are not namespace-specific
+            plan_written=True,
+            next_step="Handoff to Workflow Coordinator for execution - This is MANDATORY",
         )
 
     except Exception as e:
@@ -163,37 +150,19 @@ context_tools = [
     FunctionTool.from_defaults(
         fn=read_alert_diagnostics_data,
         name="read_alert_diagnostics_data",
-        description="""Read alert information from shared context with structured output.
+        description="""Read alert information from shared context.
 
-        Purpose: Retrieve alert information to understand what needs to be remediated.
+        Args: None - reads from context
 
-        Inputs: None - reads from context
+        Returns:
+        - AlertDiagnosticsResult with alert_diagnostics dict containing:
+          - namespace: The namespace where the alert originated
+          - alert_name: The name of the alert
+          - alert_diagnostics: Diagnostic text describing the alert
+          - alert_status: Current status of the alert
+          - recommendation: Diagnose agent recommendations
 
-        Returns: ToolResult with:
-        - success: bool - whether operation succeeded
-        - data: dict with alert diagnostics on success, None on error
-        - error: ToolError with type, message, recoverable, suggestion on failure
-
-        Alert diagnostics dict contains:
-        - namespace (str): The namespace where the alert originated
-        - alert_name (str): The name of the alert
-        - alert_diagnostics (str): Diagnostic text describing the alert
-        - alert_status (str): Current status of the alert
-        - recommendation (str): Diagnose agent recommendations
-
-        Usage:
-        result = read_alert_diagnostics_data(ctx)
-        if result.success:
-            alert_data = result.data
-            namespace = alert_data["namespace"]
-            alert_name = alert_data["alert_name"]
-            diagnostics = alert_data["alert_diagnostics"]
-        else:
-            if result.error.type == ErrorType.NOT_FOUND:
-                # No alert data in context - coordinate with Workflow Coordinator
-                pass
-
-        When to call: FIRST in Step 0 to understand the alert before investigation
+        Use for: Understanding the alert before starting investigation
         """,
     ),
     FunctionTool.from_defaults(
@@ -201,47 +170,17 @@ context_tools = [
         name="write_remediation_plan",
         description="""Write remediation plan with validated commands to shared context.
 
-        Purpose: Create executable remediation commands and explanation for the Workflow Coordinator to execute.
-
-        Required Inputs:
+        Args:
         - explanation (str): Brief explanation of the issue and why the commands will fix it
-          Example: "backend has 128Mi memory limit causing OOMKilled. Increasing to 512Mi."
         - commands (list[str]): List of EXECUTABLE oc commands (NOT descriptions)
-          Must be valid shell commands that modify cluster state
 
-        Returns: ToolResult with:
-        - success: bool - whether operation succeeded
-        - data: dict with plan metadata on success, None on error
-        - error: ToolError with type, message, recoverable, suggestion on failure
+        Returns:
+        - RemediationPlanResult with plan_written status and next_step instructions
 
-        Plan metadata dict contains:
-        - plan_stored: bool - Whether plan was successfully stored
-        - explanation: str - The explanation provided
-        - commands_count: int - Number of commands in the plan
-        - commands: list[str] - The validated commands
-        - next_step: str - Instructions for next workflow step
-
-        Usage:
-        result = write_remediation_plan(
-            ctx, "Fix CPU limits", ["oc set resources deployment web --limits=cpu=500m"]
-        )
-        if result.success:
-            plan_data = result.data
-            commands_count = plan_data["commands_count"]
-            next_step = plan_data["next_step"]
-        else:
-            if result.error.type == ErrorType.SYNTAX:
-                # Invalid commands provided
-                suggestion = result.error.suggestion
-
-        NEXT STEP AFTER THIS TOOL: You MUST immediately handoff to "Workflow Coordinator" - MANDATORY
-
-        CRITICAL RULES:
+        Rules:
         - Commands MUST be executable shell commands, NOT descriptions
-        - Each command must be a complete, valid oc command
-        - Use proper format: oc set resources deployment <name> -n <namespace> --limits=cpu=X,memory=Y --requests=cpu=X,memory=Y
-        - DO NOT use multiple --limits or --requests flags in one command
-        - DO NOT use descriptive text like "Increase memory" - use actual commands
+        - Use format: oc set resources deployment <name> -n <namespace> --limits=cpu=X,memory=Y
+        - After calling this tool, MUST handoff to Workflow Coordinator
 
         CORRECT EXAMPLE:
         write_remediation_plan(
@@ -256,9 +195,7 @@ context_tools = [
         ❌ commands=["oc set resources --limits=cpu=1000m --limits=memory=512Mi"]  # Duplicate flags
         ❌ commands=["oc set resources deployment frontend --limits=cpu=500m"]  # Missing namespace
 
-        When to call: In Step 3, after investigating with oc tools
-
-        CRITICAL: After calling this tool, you MUST call handoff tool immediately in Step 4 - MANDATORY
+        Use for: Storing remediation commands for execution by Workflow Coordinator
         """,
     ),
 ]

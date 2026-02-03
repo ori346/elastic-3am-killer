@@ -10,21 +10,24 @@ import subprocess
 
 from configs import LOG_COLLECTION, TIMEOUTS
 from llama_index.core.tools import FunctionTool
+from typing import Optional
 
 from .models import (
-    ContainerInfo,
     ErrorType,
     LogEntry,
-    LogResponse,
-    PodCondition,
-    PodInfo,
-    ResourceRequirements,
+    ToolError,
     ToolResult,
+    PodListResult,
+    PodSummary,
+    LogResult,
+    ContainerDetail,
+    PodDetail,
+    PodDetailedResult,
 )
 from .tool_tracker import track_tool_usage
 from .utils import (
     classify_oc_error,
-    create_error_result,
+    create_tool_error,
     extract_container_state,
     find_pod_by_name,
     format_ready_status,
@@ -32,70 +35,9 @@ from .utils import (
 )
 
 
-def _parse_pod_conditions(pod_status: dict) -> list[PodCondition]:
-    """Extract pod conditions from pod status JSON."""
-    conditions = []
-    for condition in pod_status.get("conditions", []):
-        pod_condition = PodCondition(
-            type=condition["type"],
-            status=condition["status"],
-            reason=condition.get("reason"),
-        )
-        conditions.append(pod_condition)
-    return conditions
-
-
-def _parse_container_info_from_json(pod_spec: dict, pod_status: dict) -> list[ContainerInfo]:
-    """Extract container information from pod JSON spec and status."""
-    containers = []
-    container_specs = pod_spec.get("containers", [])
-    container_statuses = pod_status.get("containerStatuses", [])
-
-    # Create a mapping for easy lookup
-    status_map = {status["name"]: status for status in container_statuses}
-
-    for container_spec in container_specs:
-        name = container_spec["name"]
-        status = status_map.get(name, {})
-
-        # Extract resources - only create objects when there are actual values
-        resources = container_spec.get("resources", {})
-        limits = None
-        requests = None
-
-        if "limits" in resources:
-            limits_data = {}
-            if resources["limits"].get("cpu"):
-                limits_data["cpu"] = resources["limits"]["cpu"]
-            if resources["limits"].get("memory"):
-                limits_data["memory"] = resources["limits"]["memory"]
-            if limits_data:  # Only create if there are actual limits
-                limits = ResourceRequirements(**limits_data)
-
-        if "requests" in resources:
-            requests_data = {}
-            if resources["requests"].get("cpu"):
-                requests_data["cpu"] = resources["requests"]["cpu"]
-            if resources["requests"].get("memory"):
-                requests_data["memory"] = resources["requests"]["memory"]
-            if requests_data:  # Only create if there are actual requests
-                requests = ResourceRequirements(**requests_data)
-
-        container = ContainerInfo(
-            name=name,
-            image=container_spec["image"],
-            ready=status.get("ready", False),
-            restart_count=status.get("restartCount", 0),
-            state=extract_container_state(status),
-            limits=limits,
-            requests=requests,
-        )
-        containers.append(container)
-
-    return containers
-
-
-def _create_log_entries(log_lines: list[str], container_name: str = None) -> list[LogEntry]:
+def _create_log_entries(
+    log_lines: list[str], container_name: str = None
+) -> list[LogEntry]:
     """Convert raw log lines into structured LogEntry objects."""
     entries = []
     for line in log_lines:
@@ -123,10 +65,12 @@ def _create_log_entries(log_lines: list[str], container_name: str = None) -> lis
     return entries
 
 
-def _handle_oc_command_error(returncode: int, stderr: str, tool_name: str, operation: str, namespace: str = None) -> ToolResult:
+def _handle_oc_command_error(
+    returncode: int, stderr: str, tool_name: str, operation: str, namespace: str = None
+) -> ToolError:
     """Handle standard OC command errors with consistent error classification."""
-    error_type = classify_oc_error(returncode, stderr)
-    return create_error_result(
+    error_type = classify_oc_error(stderr)
+    return create_tool_error(
         error_type=error_type,
         message=f"Failed to {operation}: {stderr}",
         tool_name=tool_name,
@@ -136,9 +80,11 @@ def _handle_oc_command_error(returncode: int, stderr: str, tool_name: str, opera
     )
 
 
-def _handle_json_parse_error(error: Exception, tool_name: str, raw_output: str, namespace: str = None) -> ToolResult:
+def _handle_json_parse_error(
+    error: Exception, tool_name: str, raw_output: str, namespace: str = None
+) -> ToolError:
     """Handle JSON parsing errors."""
-    return create_error_result(
+    return create_tool_error(
         error_type=ErrorType.SYNTAX,
         message=f"Failed to parse JSON: {str(error)}",
         tool_name=tool_name,
@@ -147,9 +93,11 @@ def _handle_json_parse_error(error: Exception, tool_name: str, raw_output: str, 
     )
 
 
-def _handle_timeout_error(tool_name: str, operation: str, namespace: str = None) -> ToolResult:
+def _handle_timeout_error(
+    tool_name: str, operation: str, namespace: str = None
+) -> ToolError:
     """Handle subprocess timeout errors."""
-    return create_error_result(
+    return create_tool_error(
         error_type=ErrorType.TIMEOUT,
         message=f"Command timed out for {operation}",
         tool_name=tool_name,
@@ -158,9 +106,11 @@ def _handle_timeout_error(tool_name: str, operation: str, namespace: str = None)
     )
 
 
-def _handle_generic_error(error: Exception, tool_name: str, operation: str, namespace: str = None) -> ToolResult:
+def _handle_generic_error(
+    error: Exception, tool_name: str, operation: str, namespace: str = None
+) -> ToolError:
     """Handle unexpected generic errors."""
-    return create_error_result(
+    return create_tool_error(
         error_type=ErrorType.UNKNOWN,
         message=f"Unexpected error {operation}: {str(error)}",
         tool_name=tool_name,
@@ -168,9 +118,11 @@ def _handle_generic_error(error: Exception, tool_name: str, operation: str, name
     )
 
 
-def _handle_not_found_error(tool_name: str, message: str, namespace: str = None) -> ToolResult:
+def _handle_not_found_error(
+    tool_name: str, message: str, namespace: str = None
+) -> ToolError:
     """Handle resource not found errors."""
-    return create_error_result(
+    return create_tool_error(
         error_type=ErrorType.NOT_FOUND,
         message=message,
         tool_name=tool_name,
@@ -178,9 +130,11 @@ def _handle_not_found_error(tool_name: str, message: str, namespace: str = None)
     )
 
 
-def _get_filtered_logs(pod_name: str, namespace: str, pattern: str) -> tuple[list[str], ToolResult]:
+def _get_filtered_logs(
+    pod_name: str, namespace: str, container: str, pattern: str
+) -> tuple[list[str], ToolResult]:
     """Get logs with pattern filtering. Returns (log_lines, error_result or None)."""
-    cmd = f"oc logs {pod_name} -n {namespace} --tail={LOG_COLLECTION.logs_tail_with_pattern} | grep -i '{pattern}' | tail -n {LOG_COLLECTION.logs_tail_final}"
+    cmd = f"oc logs {pod_name} -n {namespace} -c {container} --tail={LOG_COLLECTION.logs_tail_with_pattern} | grep -i '{pattern}' | tail -n {LOG_COLLECTION.logs_tail_final}"
     result = subprocess.run(
         cmd,
         shell=True,
@@ -195,8 +149,11 @@ def _get_filtered_logs(pod_name: str, namespace: str, pattern: str) -> tuple[lis
         return [], None
     elif result.returncode != 0:
         error_result = _handle_oc_command_error(
-            result.returncode, result.stderr, "execute_oc_logs",
-            "get filtered logs", namespace
+            result.returncode,
+            result.stderr,
+            "execute_oc_logs",
+            "get filtered logs",
+            namespace,
         )
         return [], error_result
     else:
@@ -204,7 +161,9 @@ def _get_filtered_logs(pod_name: str, namespace: str, pattern: str) -> tuple[lis
         return log_lines, None
 
 
-def _get_unfiltered_logs(pod_name: str, namespace: str) -> tuple[list[str], ToolResult]:
+def _get_unfiltered_logs(
+    pod_name: str, namespace: str, container: str
+) -> tuple[list[str], ToolResult]:
     """Get unfiltered logs. Returns (log_lines, error_result or None)."""
     result = subprocess.run(
         [
@@ -213,6 +172,8 @@ def _get_unfiltered_logs(pod_name: str, namespace: str) -> tuple[list[str], Tool
             pod_name,
             "-n",
             namespace,
+            "-c",
+            container,
             f"--tail={LOG_COLLECTION.logs_tail_default}",
         ],
         capture_output=True,
@@ -222,8 +183,7 @@ def _get_unfiltered_logs(pod_name: str, namespace: str) -> tuple[list[str], Tool
 
     if result.returncode != 0:
         error_result = _handle_oc_command_error(
-            result.returncode, result.stderr, "execute_oc_logs",
-            "get logs", namespace
+            result.returncode, result.stderr, "execute_oc_logs", "get logs", namespace
         )
         return [], error_result
     else:
@@ -231,20 +191,106 @@ def _get_unfiltered_logs(pod_name: str, namespace: str) -> tuple[list[str], Tool
         return log_lines, None
 
 
+def _parse_container_detail_from_json(
+    pod_spec: dict, pod_status: dict
+) -> list[ContainerDetail]:
+    """Extract detailed container information including probes, resources, and state."""
+    containers = []
+    container_specs = pod_spec.get("containers", [])
+    container_statuses = pod_status.get("containerStatuses", [])
+
+    # Create a mapping for easy lookup
+    status_map = {status["name"]: status for status in container_statuses}
+
+    for container_spec in container_specs:
+        name = container_spec["name"]
+        status = status_map.get(name, {})
+
+        # Extract resources
+        resources = container_spec.get("resources", {})
+
+        # Extract probe configurations
+        liveness_probe = container_spec.get("livenessProbe")
+        readiness_probe = container_spec.get("readinessProbe")
+
+        # Extract container state details
+        container_state = status.get("state", {})
+        exit_code = None
+        termination_reason = None
+        termination_message = None
+
+        if "terminated" in container_state:
+            terminated = container_state["terminated"]
+            exit_code = terminated.get("exitCode")
+            termination_reason = terminated.get("reason")
+            termination_message = terminated.get("message")
+
+        # Extract ports and environment
+        ports = container_spec.get("ports", [])
+        env_vars = []
+        for env in container_spec.get("env", []):
+            env_item = {"name": env["name"]}
+            if "value" in env:
+                env_item["value"] = env["value"]
+            elif "valueFrom" in env:
+                env_item["valueFrom"] = str(env["valueFrom"])
+            env_vars.append(env_item)
+
+        container = ContainerDetail(
+            name=name,
+            image=container_spec["image"],
+            ready=status.get("ready", False),
+            restart_count=status.get("restartCount", 0),
+            state=extract_container_state(status),
+            limits=resources.get("limits"),
+            requests=resources.get("requests"),
+            liveness_probe=liveness_probe,
+            readiness_probe=readiness_probe,
+            exit_code=exit_code,
+            termination_reason=termination_reason,
+            termination_message=termination_message,
+            ports=ports,
+            environment=env_vars,
+        )
+        containers.append(container)
+
+    return containers
+
+
+def _extract_pod_networking(pod_status: dict) -> tuple[Optional[str], Optional[str]]:
+    """Extract pod IP and host IP from status."""
+    pod_ip = pod_status.get("podIP")
+    host_ip = pod_status.get("hostIP")
+    return pod_ip, host_ip
+
+
+def _extract_security_context(pod_spec: dict) -> Optional[dict]:
+    """Extract pod-level security context configuration."""
+    return pod_spec.get("securityContext")
+
+
+def _extract_owner_references(pod_metadata: dict) -> list[dict]:
+    """Extract owner references from pod metadata."""
+    owner_refs = []
+    for ref in pod_metadata.get("ownerReferences", []):
+        owner_refs.append({
+            "kind": ref.get("kind", ""),
+            "name": ref.get("name", ""),
+            "uid": ref.get("uid", ""),
+        })
+    return owner_refs
+
+
 @track_tool_usage
 def execute_oc_get_pods(namespace: str) -> ToolResult:
     """
-    Get basic pod listing information for all pods in a namespace.
-
-    Returns lightweight pod data similar to 'oc get pods' - name, status, ready count,
-    restarts, age, node. Does NOT include detailed container specs or conditions.
-    Use execute_oc_get_pod for detailed information about a specific pod.
+    List pods in namespace with basic status (name, phase, ready count, restarts).
 
     Args:
-        namespace: The OpenShift namespace to query
+        namespace: Target namespace
 
     Returns:
-        ToolResult with List[PodInfo] containing basic pod information on success
+        PodsInNamespace with pod list or ToolError
     """
     try:
         returncode, stdout, stderr = run_oc_command(
@@ -253,8 +299,11 @@ def execute_oc_get_pods(namespace: str) -> ToolResult:
 
         if returncode != 0:
             return _handle_oc_command_error(
-                returncode, stderr, "execute_oc_get_pods",
-                f"get pods in namespace '{namespace}'", namespace
+                returncode,
+                stderr,
+                "execute_oc_get_pods",
+                f"get pods in namespace '{namespace}'",
+                namespace,
             )
 
         # Parse JSON output into structured models
@@ -265,7 +314,6 @@ def execute_oc_get_pods(namespace: str) -> ToolResult:
             for pod_data in pods_json.get("items", []):
                 metadata = pod_data.get("metadata", {})
                 status = pod_data.get("status", {})
-                spec = pod_data.get("spec", {})
 
                 # Calculate basic age from creation timestamp
                 creation_time = metadata.get("creationTimestamp", "")
@@ -278,10 +326,9 @@ def execute_oc_get_pods(namespace: str) -> ToolResult:
                         else "recent"
                     )
 
-                # Create lightweight PodInfo with only basic listing information
-                pod = PodInfo(
+                # Create streamlined PodSummary with essential information only
+                pod = PodSummary(
                     name=metadata["name"],
-                    namespace=metadata["namespace"],
                     status=status.get("phase", "Unknown"),
                     ready=format_ready_status(status.get("containerStatuses", [])),
                     restarts=sum(
@@ -289,20 +336,13 @@ def execute_oc_get_pods(namespace: str) -> ToolResult:
                         for cs in status.get("containerStatuses", [])
                     ),
                     age=age,
-                    node=spec.get("nodeName"),
-                    service_account=spec.get("serviceAccountName", "default"),
-                    containers=[],  # Empty - use execute_oc_get_pod for detailed container info
-                    conditions=[],  # Empty - use execute_oc_get_pod for detailed conditions
                 )
                 pods.append(pod)
 
             # Successful execution with structured data
-            return ToolResult(
-                success=True,
-                data=pods,
-                error=None,
-                tool_name="execute_oc_get_pods",
+            return PodListResult(
                 namespace=namespace,
+                pods=pods,
             )
 
         except json.JSONDecodeError as e:
@@ -311,21 +351,22 @@ def execute_oc_get_pods(namespace: str) -> ToolResult:
     except subprocess.TimeoutExpired:
         return _handle_timeout_error("execute_oc_get_pods", "getting pods", namespace)
     except Exception as e:
-        return _handle_generic_error(e, "execute_oc_get_pods", "executing oc get pods", namespace)
+        return _handle_generic_error(
+            e, "execute_oc_get_pods", "executing oc get pods", namespace
+        )
 
 
 @track_tool_usage
 def execute_oc_get_pod(pod_name: str, namespace: str) -> ToolResult:
     """
-    Get detailed pod information with structured output.
-    Supports partial pod names (e.g., "frontend" will find "frontend-698f45c955-hbkjz").
+    Get detailed pod information for debugging purposes. Supports partial names.
 
     Args:
-        pod_name: Name of the pod (can be partial, will search for matching pod)
-        namespace: The OpenShift namespace
+        pod_name: Pod name (partial match supported)
+        namespace: Target namespace
 
     Returns:
-        ToolResult with PodInfo on success or ToolError on failure
+        PodDetailedResult with comprehensive pod and container information or ToolError
     """
 
     try:
@@ -335,7 +376,7 @@ def execute_oc_get_pod(pod_name: str, namespace: str) -> ToolResult:
             return _handle_not_found_error(
                 "execute_oc_get_pod",
                 f"Pod '{pod_name}' not found in namespace '{namespace}': {actual_pod_name}",
-                namespace
+                namespace,
             )
 
         # Get pod info using JSON output
@@ -345,8 +386,11 @@ def execute_oc_get_pod(pod_name: str, namespace: str) -> ToolResult:
 
         if returncode != 0:
             return _handle_oc_command_error(
-                returncode, stderr, "execute_oc_get_pod",
-                f"get pod '{actual_pod_name}'", namespace
+                returncode,
+                stderr,
+                "execute_oc_get_pod",
+                f"get pod '{actual_pod_name}'",
+                namespace,
             )
 
         try:
@@ -355,62 +399,70 @@ def execute_oc_get_pod(pod_name: str, namespace: str) -> ToolResult:
             status = pod_data.get("status", {})
             spec = pod_data.get("spec", {})
 
-            # Parse containers and conditions using helper functions
-            containers = _parse_container_info_from_json(spec, status)
-            conditions = _parse_pod_conditions(status)
+            # Parse detailed container information
+            containers_detail = _parse_container_detail_from_json(spec, status)
 
-            # Calculate age
-            creation_time = metadata.get("creationTimestamp", "")
-            age = "unknown"
-            if creation_time:
-                age = creation_time.split("T")[0] if "T" in creation_time else "recent"
+            # Extract networking information
+            pod_ip, host_ip = _extract_pod_networking(status)
 
-            # Create PodInfo
-            pod = PodInfo(
+            # Extract security context
+            security_context = _extract_security_context(spec)
+
+            # Extract owner references
+            owner_references = _extract_owner_references(metadata)
+
+            # Create detailed PodDetail
+            pod_detail = PodDetail(
                 name=metadata["name"],
-                namespace=metadata["namespace"],
                 status=status.get("phase", "Unknown"),
                 ready=format_ready_status(status.get("containerStatuses", [])),
                 restarts=sum(
                     cs.get("restartCount", 0)
                     for cs in status.get("containerStatuses", [])
                 ),
-                age=age,
-                node=spec.get("nodeName"),
-                service_account=spec.get("serviceAccountName", "default"),
-                containers=containers,
-                conditions=conditions,
+                pod_ip=pod_ip,
+                host_ip=host_ip,
+                labels=metadata.get("labels", {}),
+                annotations=metadata.get("annotations", {}),
+                service_account=spec.get("serviceAccountName"),
+                security_context=security_context,
+                owner_references=owner_references,
             )
 
-            return ToolResult(
-                success=True,
-                data=pod,
-                error=None,
-                tool_name="execute_oc_get_pod",
+            return PodDetailedResult(
                 namespace=namespace,
+                pod=pod_detail,
+                containers=containers_detail,
             )
 
         except json.JSONDecodeError as e:
             return _handle_json_parse_error(e, "execute_oc_get_pod", stdout, namespace)
 
     except subprocess.TimeoutExpired:
-        return _handle_timeout_error("execute_oc_get_pod", f"pod '{pod_name}'", namespace)
+        return _handle_timeout_error(
+            "execute_oc_get_pod", f"pod '{pod_name}'", namespace
+        )
     except Exception as e:
-        return _handle_generic_error(e, "execute_oc_get_pod", f"getting pod '{pod_name}'", namespace)
+        return _handle_generic_error(
+            e, "execute_oc_get_pod", f"getting pod '{pod_name}'", namespace
+        )
 
 
 @track_tool_usage
-def execute_oc_logs(pod_name: str, namespace: str, pattern: str = "") -> ToolResult:
+def execute_oc_logs(
+    pod_name: str, namespace: str, container: str = "", pattern: str = ""
+) -> ToolResult:
     """
-    Get pod logs with optional pattern filtering and structured output.
+    Get pod logs with optional pattern filtering. Supports partial pod names.
 
     Args:
-        pod_name: Name of the pod (can be partial, will search for matching pod)
-        namespace: The OpenShift namespace
-        pattern: Optional text pattern to filter logs (uses grep)
+        pod_name: Pod name (partial match supported)
+        namespace: Target namespace
+        container: Container name (optional)
+        pattern: Text pattern filter (optional)
 
     Returns:
-        ToolResult with LogResponse containing structured log entries
+        LogResult with structured log entries or ToolError
     """
 
     try:
@@ -420,59 +472,50 @@ def execute_oc_logs(pod_name: str, namespace: str, pattern: str = "") -> ToolRes
             return _handle_not_found_error(
                 "execute_oc_logs",
                 f"Pod for logs not found: {actual_pod_name}",
-                namespace
+                namespace,
             )
 
         # Get log lines using appropriate helper function
         if pattern:
-            log_lines, error_result = _get_filtered_logs(actual_pod_name, namespace, pattern)
+            log_lines, error_result = _get_filtered_logs(
+                actual_pod_name, namespace, container, pattern
+            )
             if error_result:
                 return error_result
             if not log_lines:
-                # No matches found - return empty LogResponse
-                log_response = LogResponse(
-                    pod_name=actual_pod_name,
+                # No matches found - return empty LogResult
+                return LogResult(
                     namespace=namespace,
-                    pattern_filter=pattern,
+                    pod_name=actual_pod_name,
                     total_lines=0,
                     entries=[],
                 )
-                return ToolResult(
-                    success=True,
-                    data=log_response,
-                    error=None,
-                    tool_name="execute_oc_logs",
-                    namespace=namespace,
-                )
         else:
-            log_lines, error_result = _get_unfiltered_logs(actual_pod_name, namespace)
+            log_lines, error_result = _get_unfiltered_logs(
+                actual_pod_name, namespace, container
+            )
             if error_result:
                 return error_result
 
         # Parse log lines into LogEntry objects using helper function
         log_entries = _create_log_entries(log_lines)
 
-        # Create LogResponse
-        log_response = LogResponse(
-            pod_name=actual_pod_name,
+        # Create LogResult
+        return LogResult(
             namespace=namespace,
-            pattern_filter=pattern if pattern else None,
+            pod_name=actual_pod_name,
             total_lines=len(log_entries),
             entries=log_entries,
         )
 
-        return ToolResult(
-            success=True,
-            data=log_response,
-            error=None,
-            tool_name="execute_oc_logs",
-            namespace=namespace,
-        )
-
     except subprocess.TimeoutExpired:
-        return _handle_timeout_error("execute_oc_logs", f"logs for pod '{pod_name}'", namespace)
+        return _handle_timeout_error(
+            "execute_oc_logs", f"logs for pod '{pod_name}'", namespace
+        )
     except Exception as e:
-        return _handle_generic_error(e, "execute_oc_logs", f"getting logs for pod '{pod_name}'", namespace)
+        return _handle_generic_error(
+            e, "execute_oc_logs", f"getting logs for pod '{pod_name}'", namespace
+        )
 
 
 # Tool definitions for LlamaIndex
@@ -482,82 +525,49 @@ pod_tools = [
         name="execute_oc_get_pods",
         description="""List all pods in a namespace with basic status information.
 
-        Purpose: Get a lightweight overview of all pods in a namespace, similar to 'oc get pods'.
-
         Args:
-        - namespace: OpenShift namespace to query
+        - namespace (str): OpenShift namespace to query
 
-        Returns: ToolResult with List[PodInfo] containing basic information:
-        - name, namespace, status, ready count, restarts, age, node
-        - Empty containers and conditions arrays (use execute_oc_get_pod for detailed info)
+        Returns:
+        - PodsInNamespace: Contains list of PodInfo objects with name, status, ready count, restarts, age
 
-        When to use:
-        - Get overall pod health overview in a namespace
-        - Identify which pods are failing or have issues
-        - Before investigating specific pods in detail
-
-        Note: For detailed pod information, use execute_oc_get_pod
+        Use for: Pod health overview, identifying failing pods, namespace-wide pod status check
         """,
     ),
     FunctionTool.from_defaults(
         fn=execute_oc_get_pod,
         name="execute_oc_get_pod",
-        description="""Get detailed pod information with containers, conditions, and resources.
-
-        Purpose: Deep dive into a specific pod for comprehensive diagnosis.
+        description="""Get comprehensive detailed information about a specific pod for debugging.
 
         Args:
-        - pod_name: Pod name (supports partial names like "frontend-web")
-        - namespace: OpenShift namespace
+        - pod_name (str): Pod name (supports partial matching, e.g., "frontend" matches "frontend-abc123")
+        - namespace (str): OpenShift namespace containing the pod
 
-        Returns: ToolResult with PodInfo containing:
-        - Basic info: name, namespace, status, ready, restarts, age, node
-        - containers: List[ContainerInfo] with resource limits/requests, states, restart counts
-        - conditions: List[PodCondition] with detailed pod state information
+        Returns:
+        - PodDetailedResult: Contains detailed pod information including:
+          * Pod: networking (IPs), labels, annotations, security context, owner references
+          * Containers: resource limits/requests, liveness/readiness probes, exit codes,
+            termination reasons, ports, environment variables
 
-        Features:
-        - Supports partial pod names (e.g., "frontend" → "frontend-698f45c955-hbkjz")
-        - Comprehensive container and resource analysis
-        - Pod condition checking (Ready, Initialized, Scheduled, etc.)
-
-        When to use:
-        - Investigate specific pod failures or container issues
-        - Analyze resource usage and limits
-        - Check pod conditions and container states
-
-        Related: Use execute_oc_get_pod_events for event history from the event_tools module
+        Use for: Advanced debugging of pod failures, resource issues, probe failures,
+        networking problems, container crashes, and security context troubleshooting
         """,
     ),
     FunctionTool.from_defaults(
         fn=execute_oc_logs,
         name="execute_oc_logs",
-        description="""Get pod logs with structured output and optional pattern filtering.
-
-        Purpose: Retrieve and analyze application logs from pod containers.
+        description="""Get pod logs with optional filtering.
 
         Args:
-        - pod_name: Pod name (supports partial names like "auth-service")
-        - namespace: OpenShift namespace
-        - pattern: Optional text pattern to filter logs (uses grep, e.g., "ERROR", "exception")
+        - pod_name (str): Pod name (supports partial matching, e.g., "api" matches "api-server-abc123")
+        - namespace (str): OpenShift namespace containing the pod
+        - container (str, optional): Specific container name to get logs from
+        - pattern (str, optional): Text pattern to filter logs (e.g., "ERROR", "exception")
 
-        Returns: ToolResult with LogResponse containing:
-        - pod_name, namespace, pattern_filter: Metadata about the log request
-        - total_lines: Number of log lines retrieved
-        - entries: List[LogEntry] with level, message, container fields
+        Returns:
+        - LogResult: Contains structured log entries with level detection (ERROR, WARN, INFO, DEBUG)
 
-        Features:
-        - Supports partial pod names (auto-matches to full name)
-        - Pattern filtering for focused analysis (e.g., only ERROR logs)
-        - Automatic log level detection (ERROR, WARN, INFO, DEBUG)
-        - Configurable tail limits from LOG_COLLECTION settings
-
-        When to use:
-        - Investigate application errors and exceptions
-        - Analyze application behavior and performance
-        - Debug startup or runtime issues
-        - Search for specific log patterns or messages
-
-        Example: execute_oc_logs("api", "default", "ERROR") → Only error logs from API pod
+        Use for: Application debugging, error analysis, log pattern search, troubleshooting startup issues
         """,
     ),
 ]

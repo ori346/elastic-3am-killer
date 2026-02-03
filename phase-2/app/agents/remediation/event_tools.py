@@ -11,9 +11,14 @@ import subprocess
 from configs import LOG_COLLECTION
 from llama_index.core.tools import FunctionTool
 
-from .models import ErrorType, EventType, OpenShiftEvent, ToolResult
+from .models import ErrorType, EventType, OpenShiftEvent, OpenShiftEvents, ToolResult
 from .tool_tracker import track_tool_usage
-from .utils import classify_oc_error, create_error_result, find_pod_by_name, run_oc_command
+from .utils import (
+    classify_oc_error,
+    create_error_result,
+    find_pod_by_name,
+    run_oc_command,
+)
 
 
 @track_tool_usage
@@ -21,14 +26,14 @@ def execute_oc_get_events(
     namespace: str, tail: int = LOG_COLLECTION.events_tail_size
 ) -> ToolResult:
     """
-    Get recent events from a namespace with structured output.
+    Get recent namespace events (Normal/Warning types).
 
     Args:
-        namespace: The OpenShift namespace to query
-        tail: Number of recent events to return (default: from config)
+        namespace: Target namespace
+        tail: Event count limit (default: config value)
 
     Returns:
-        ToolResult with List[OpenShiftEvent] on success or ToolError on failure
+        OpenShiftEvents with event list or ToolError
     """
 
     try:
@@ -37,26 +42,15 @@ def execute_oc_get_events(
         )
 
         if returncode != 0:
-            # Check for no events found vs actual error
-            if "no resources found" in stderr.lower():
-                # No events is not an error, return empty list
-                return ToolResult(
-                    success=True,
-                    data=[],
-                    error=None,
-                    tool_name="execute_oc_get_events",
-                    namespace=namespace,
-                )
-            else:
-                error_type = classify_oc_error(returncode, stderr)
-                return create_error_result(
-                    error_type=error_type,
-                    message=f"Failed to get events in namespace '{namespace}': {stderr}",
-                    tool_name="execute_oc_get_events",
-                    recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
-                    raw_output=stderr,
-                    namespace=namespace,
-                )
+            error_type = classify_oc_error(stderr)
+            return create_error_result(
+                error_type=error_type,
+                message=f"Failed to get events in namespace '{namespace}': {stderr}",
+                tool_name="execute_oc_get_events",
+                recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
+                raw_output=stderr,
+                namespace=namespace,
+            )
 
         try:
             events_json = json.loads(stdout)
@@ -80,12 +74,9 @@ def execute_oc_get_events(
             events.sort(key=lambda e: (e.type == EventType.NORMAL, e.reason))
             limited_events = events[-tail:] if len(events) > tail else events
 
-            return ToolResult(
-                success=True,
-                data=limited_events,
-                error=None,
-                tool_name="execute_oc_get_events",
+            return OpenShiftEvents(
                 namespace=namespace,
+                events=limited_events,
             )
 
         except json.JSONDecodeError as e:
@@ -106,7 +97,12 @@ def execute_oc_get_events(
             namespace=namespace,
         )
     except Exception as e:
-        return f"Error executing oc get events: {str(e)}"
+        return create_error_result(
+            error_type=ErrorType.UNKNOWN,
+            message=f"Unexpected error getting events: {str(e)}",
+            tool_name="execute_oc_get_events",
+            namespace=namespace,
+        )
 
 
 @track_tool_usage
@@ -114,14 +110,14 @@ def execute_oc_get_deployment_events(
     deployment_name: str, namespace: str
 ) -> ToolResult:
     """
-    Get events specifically related to a deployment with structured output.
+    Get deployment-specific events.
 
     Args:
-        deployment_name: Name of the deployment
-        namespace: The OpenShift namespace
+        deployment_name: Deployment name
+        namespace: Target namespace
 
     Returns:
-        ToolResult with List[OpenShiftEvent] for the deployment on success or ToolError on failure
+        OpenShiftEvents filtered by deployment or ToolError
     """
     try:
         returncode, stdout, stderr = run_oc_command(
@@ -139,26 +135,15 @@ def execute_oc_get_deployment_events(
         )
 
         if returncode != 0:
-            # Check for no events found vs actual error
-            if "no resources found" in stderr.lower():
-                # No events is not an error, return empty list
-                return ToolResult(
-                    success=True,
-                    data=[],
-                    error=None,
-                    tool_name="execute_oc_get_deployment_events",
-                    namespace=namespace,
-                )
-            else:
-                error_type = classify_oc_error(returncode, stderr)
-                return create_error_result(
-                    error_type=error_type,
-                    message=f"Failed to get events for deployment '{deployment_name}': {stderr}",
-                    tool_name="execute_oc_get_deployment_events",
-                    recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
-                    raw_output=stderr,
-                    namespace=namespace,
-                )
+            error_type = classify_oc_error(stderr)
+            return create_error_result(
+                error_type=error_type,
+                message=f"Failed to get events for deployment '{deployment_name}': {stderr}",
+                tool_name="execute_oc_get_deployment_events",
+                recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
+                raw_output=stderr,
+                namespace=namespace,
+            )
 
         try:
             events_json = json.loads(stdout)
@@ -180,12 +165,10 @@ def execute_oc_get_deployment_events(
                 )
                 events.append(event)
 
-            return ToolResult(
-                success=True,
-                data=events,
-                error=None,
+            return OpenShiftEvents(
                 tool_name="execute_oc_get_deployment_events",
                 namespace=namespace,
+                events=events,
             )
 
         except json.JSONDecodeError as e:
@@ -217,14 +200,14 @@ def execute_oc_get_deployment_events(
 @track_tool_usage
 def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
     """
-    Get events specifically related to a pod with structured output.
+    Get pod-specific events. Supports partial pod name matching.
 
     Args:
-        pod_name: Name of the pod (can be partial, will search for matching pod)
-        namespace: The OpenShift namespace
+        pod_name: Pod name (partial match supported)
+        namespace: Target namespace
 
     Returns:
-        ToolResult with List[OpenShiftEvent] for the pod on success or ToolError on failure
+        OpenShiftEvents filtered by pod or ToolError
     """
     try:
         # Find the pod by exact name or partial match
@@ -237,39 +220,30 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
                 namespace=namespace,
             )
 
-        returncode, stdout, stderr = run_oc_command([
-            "oc",
-            "get",
-            "events",
-            "--field-selector",
-            f"involvedObject.name={actual_pod_name}",
-            "-n",
-            namespace,
-            "-o",
-            "json"
-        ])
+        returncode, stdout, stderr = run_oc_command(
+            [
+                "oc",
+                "get",
+                "events",
+                "--field-selector",
+                f"involvedObject.name={actual_pod_name}",
+                "-n",
+                namespace,
+                "-o",
+                "json",
+            ]
+        )
 
         if returncode != 0:
-            # Check for no events found vs actual error
-            if "no resources found" in stderr.lower():
-                # No events is not an error, return empty list
-                return ToolResult(
-                    success=True,
-                    data=[],
-                    error=None,
-                    tool_name="execute_oc_get_pod_events",
-                    namespace=namespace,
-                )
-            else:
-                error_type = classify_oc_error(returncode, stderr)
-                return create_error_result(
-                    error_type=error_type,
-                    message=f"Failed to get events for pod '{actual_pod_name}': {stderr}",
-                    tool_name="execute_oc_get_pod_events",
-                    recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
-                    raw_output=stderr,
-                    namespace=namespace,
-                )
+            error_type = classify_oc_error(stderr)
+            return create_error_result(
+                error_type=error_type,
+                message=f"Failed to get events for pod '{actual_pod_name}': {stderr}",
+                tool_name="execute_oc_get_pod_events",
+                recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
+                raw_output=stderr,
+                namespace=namespace,
+            )
 
         try:
             events_json = json.loads(stdout)
@@ -291,12 +265,10 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
                 )
                 events.append(event)
 
-            return ToolResult(
-                success=True,
-                data=events,
-                error=None,
+            return OpenShiftEvents(
                 tool_name="execute_oc_get_pod_events",
                 namespace=namespace,
+                events=events,
             )
 
         except json.JSONDecodeError as e:
@@ -330,97 +302,46 @@ event_tools = [
     FunctionTool.from_defaults(
         fn=execute_oc_get_events,
         name="execute_oc_get_events",
-        description="""Get recent OpenShift events from a namespace for cluster activity analysis.
-
-        Purpose: View recent cluster events to understand what happened in a namespace.
+        description="""Get recent OpenShift events from a namespace.
 
         Args:
-        - namespace: OpenShift namespace to query
-        - tail: Number of recent events to return (optional, uses config default)
+        - namespace (str): OpenShift namespace to query
+        - tail (int, optional): Number of recent events to return (default: from config)
 
-        Returns: ToolResult with List[OpenShiftEvent] containing:
-        - type: Normal or Warning event severity
-        - reason: Event code (Scheduled, Failed, FailedScheduling, etc.)
-        - message: Human-readable event description
-        - object: Name of object that generated the event
-        - count: Number of times this event occurred
+        Returns:
+        - OpenShiftEvents: Contains list of OpenShiftEvent objects with type, reason, message, object, count
 
-        Features:
-        - Prioritizes Warning events over Normal events
-        - Configurable event count limit from LOG_COLLECTION settings
-        - Returns empty list if no events found (not an error)
-
-        When to use:
-        - Understand recent activity in a namespace during alert investigation
-        - Look for Warning events that may indicate problems
-        - Get context about what operations occurred before an alert
-        - Check for patterns in event frequency and types
-
-        Example: FailedScheduling events may indicate resource constraints
+        Use for: Cluster activity analysis, warning event identification, troubleshooting context
         """,
     ),
     FunctionTool.from_defaults(
         fn=execute_oc_get_deployment_events,
         name="execute_oc_get_deployment_events",
-        description="""Get events specifically related to a deployment for targeted debugging.
-
-        Purpose: View deployment-specific events to understand scaling and rollout issues.
+        description="""Get events specifically related to a deployment.
 
         Args:
-        - deployment_name: Name of the deployment to analyze
-        - namespace: OpenShift namespace
+        - deployment_name (str): Name of the deployment to filter events for
+        - namespace (str): OpenShift namespace containing the deployment
 
-        Returns: ToolResult with List[OpenShiftEvent] containing:
-        - type: Normal or Warning event type
-        - reason: Event code (ScalingReplicaSet, FailedCreate, DeploymentRollback, etc.)
-        - message: Human-readable event message
-        - object: Object name that generated the event
-        - count: Number of times this event occurred
+        Returns:
+        - OpenShiftEvents: Contains deployment-specific events (ScalingReplicaSet, FailedCreate, rollbacks)
 
-        Features:
-        - Filters events to show only deployment-related activity
-        - Returns empty list if no events found (not an error)
-        - Focuses on scaling and rollout events for targeted analysis
-
-        When to use:
-        - Investigate deployment scaling issues or stuck rollouts
-        - Understand why a deployment isn't reaching desired replicas
-        - Check for deployment-specific failures or warnings
-        - Analyze rollout history and scaling patterns
-
-        Example: ScalingReplicaSet events show successful/failed scaling operations
+        Use for: Deployment scaling analysis, rollout troubleshooting, replica set issues
         """,
     ),
     FunctionTool.from_defaults(
         fn=execute_oc_get_pod_events,
         name="execute_oc_get_pod_events",
-        description="""Get events specifically related to a pod for debugging and troubleshooting.
-
-        Purpose: View pod-specific event history to understand failures and state changes.
+        description="""Get events specifically related to a pod.
 
         Args:
-        - pod_name: Pod name (supports partial names like "api-server")
-        - namespace: OpenShift namespace
+        - pod_name (str): Pod name (supports partial matching, e.g., "frontend" matches "frontend-abc123")
+        - namespace (str): OpenShift namespace containing the pod
 
-        Returns: ToolResult with List[OpenShiftEvent] containing:
-        - type: Normal or Warning event severity
-        - reason: Event code (Scheduled, Failed, FailedScheduling, Pulled, etc.)
-        - message: Human-readable event description
-        - object: Object that generated the event
-        - count: Number of times event occurred
+        Returns:
+        - OpenShiftEvents: Contains pod-specific events (Scheduled, Failed, FailedScheduling, Pulled)
 
-        Features:
-        - Supports partial pod names (auto-matches to full name)
-        - Returns empty list if no events found (not an error)
-        - Filters events specific to the pod for focused debugging
-
-        When to use:
-        - Investigate why a pod failed to start or is stuck
-        - Understand scheduling issues or resource problems
-        - Track pod lifecycle events and state transitions
-        - Debug container startup failures
-
-        Example: Pod stuck in Pending → check for FailedScheduling events
+        Use for: Pod lifecycle debugging, startup failures, scheduling issues, image pull problems
         """,
     ),
 ]
