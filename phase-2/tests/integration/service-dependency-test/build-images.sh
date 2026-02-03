@@ -124,7 +124,7 @@ echo "  podman run -p 8081:8081 $REGISTRY/dependency-client:$IMAGE_TAG"
 echo ""
 
 echo "Next steps:"
-echo "1. The images are now available for the Kubernetes deployment"
+echo "1. The images are now available for the OpenShift deployment"
 echo "2. Run ./deploy.sh to deploy the test environment"
 echo "3. Run ./inject_dependency_failure.sh to trigger the failure scenario"
 echo ""

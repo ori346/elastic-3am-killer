@@ -40,7 +40,7 @@ tests/
 - Text parsing and formatting functions
 
 ### 4. **Pod Tools** (`test_pod_tools.py`)
-- `execute_oc_get_pods`, `execute_oc_get_pod`, `execute_oc_describe_pod`
+- `execute_oc_get_pods`, `execute_oc_describe_pod`, `execute_oc_describe_pod`
 - `execute_oc_get_events`, `execute_oc_logs`
 - Structured data conversion from JSON to Pydantic models
 - Error handling for various failure scenarios

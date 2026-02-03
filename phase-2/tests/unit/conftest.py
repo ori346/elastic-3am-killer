@@ -9,15 +9,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 from agents.remediation.models import (
-    ContainerInfo,
     DeploymentCondition,
     ErrorType,
     LogEntry,
-    LogResponse,
-    PodCondition,
-    PodInfo,
-    ResourceRequirements,
     ToolError,
+    PodSummary,
+    LogResult,
 )
 
 
@@ -220,43 +217,6 @@ def sample_events_json():
 # ===== Model Instance Fixtures =====
 
 
-@pytest.fixture
-def sample_resource_requirements():
-    """Sample ResourceRequirements instance"""
-    return ResourceRequirements(cpu="500m", memory="256Mi")
-
-
-@pytest.fixture
-def sample_container_info(sample_resource_requirements):
-    """Sample ContainerInfo instance"""
-    return ContainerInfo(
-        name="nginx",
-        image="nginx:1.20",
-        ready=True,
-        state="running",
-        limits=sample_resource_requirements,
-        requests=sample_resource_requirements,
-    )
-
-
-@pytest.fixture
-def sample_pod_condition():
-    """Sample PodCondition instance"""
-    return PodCondition(type="Ready", status="True", reason="PodReady")
-
-
-@pytest.fixture
-def sample_pod_info(sample_container_info, sample_pod_condition):
-    """Sample PodInfo instance"""
-    return PodInfo(
-        name="test-pod",
-        namespace="test-namespace",
-        status="Running",
-        ready="1/1",
-        age="5m",
-        containers=[sample_container_info],
-        conditions=[sample_pod_condition],
-    )
 
 
 @pytest.fixture
@@ -283,24 +243,42 @@ def sample_log_entries():
 
 
 @pytest.fixture
-def sample_log_response(sample_log_entries):
-    """Sample LogResponse instance"""
-    return LogResponse(
-        pod_name="test-pod",
-        namespace="test-namespace",
-        total_lines=50,
-        entries=sample_log_entries,
-    )
-
-
-@pytest.fixture
 def sample_tool_error():
     """Sample ToolError instance"""
     return ToolError(
+        tool_name="test_tool",
         type=ErrorType.NOT_FOUND,
         message="Resource not found",
         recoverable=False,
         suggestion="Check resource name and namespace",
+    )
+
+
+@pytest.fixture
+def sample_pod_info():
+    """Sample PodSummary instance for legacy tests"""
+    return PodSummary(
+        name="frontend-abc123",
+        status="Running",
+        ready="1/1",
+        restarts=0,
+        age="5m",
+    )
+
+
+@pytest.fixture
+def sample_log_response():
+    """Sample LogResult instance for legacy tests"""
+    return LogResult(
+        tool_name="execute_oc_logs",
+        namespace="test",
+        pod_name="test-pod",
+        total_lines=3,
+        entries=[
+            LogEntry(level="INFO", message="App started"),
+            LogEntry(level="ERROR", message="Connection failed"),
+            LogEntry(message="Debug info"),
+        ],
     )
 
 
@@ -311,16 +289,16 @@ class MockEditState:
     """Mock context edit state that implements async context manager protocol"""
 
     def __init__(self):
-        self.data = {}
+        self.data = {"state": {}}
 
     async def __aenter__(self):
-        return self.data
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
+        return None
 
     def __getitem__(self, key):
-        return self.data.get(key)
+        return self.data[key]
 
     def __setitem__(self, key, value):
         self.data[key] = value
@@ -331,8 +309,8 @@ def mock_context():
     """Mock LlamaIndex context for testing context tools"""
     mock = AsyncMock()
 
-    # Mock get method
-    mock.get = AsyncMock(
+    # Mock store with get method
+    mock.store.get = AsyncMock(
         side_effect=lambda key: {
             "alert_data": {"alert": "test alert"},
             "namespace": "test-namespace",
@@ -343,11 +321,13 @@ def mock_context():
         }.get(key)
     )
 
-    # Mock put method
-    mock.put = AsyncMock()
+    # Mock store with put method
+    mock.store.put = AsyncMock()
 
-    # Mock edit method
-    mock.edit = AsyncMock(return_value=MockEditState())
+    # Mock store with edit_state method that returns an async context manager
+    def edit_state_func():
+        return MockEditState()
+    mock.store.edit_state = edit_state_func
 
     return mock
 

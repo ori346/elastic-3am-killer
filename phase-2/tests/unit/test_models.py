@@ -9,144 +9,19 @@ including validation, serialization, and computed properties.
 
 import pytest
 from agents.remediation.models import (
-    ContainerInfo,
+    ContainerDetail,
     DeploymentCondition,
-    DeploymentInfo,
+    DeploymentDetail,
     ErrorType,
     EventType,
     LogEntry,
-    LogResponse,
     OpenShiftEvent,
-    PodCondition,
-    PodInfo,
-    ResourceRequirements,
+    PodDetail,
+    PodDetailedResult,
     ToolError,
     ToolResult,
 )
 from pydantic import ValidationError
-
-
-class TestResourceRequirements:
-    """Test ResourceRequirements model"""
-
-    def test_resource_requirements_valid(self):
-        """Test valid resource requirements creation"""
-        resources = ResourceRequirements(cpu="500m", memory="256Mi")
-        assert resources.cpu == "500m"
-        assert resources.memory == "256Mi"
-
-    def test_resource_requirements_optional_fields(self):
-        """Test resource requirements with optional fields"""
-        # CPU only
-        resources = ResourceRequirements(cpu="1000m")
-        assert resources.cpu == "1000m"
-        assert resources.memory is None
-
-        # Memory only
-        resources = ResourceRequirements(memory="512Mi")
-        assert resources.cpu is None
-        assert resources.memory == "512Mi"
-
-        # Empty
-        resources = ResourceRequirements()
-        assert resources.cpu is None
-        assert resources.memory is None
-
-
-class TestContainerInfo:
-    """Test ContainerInfo model"""
-
-    def test_container_info_valid(self, sample_resource_requirements):
-        """Test valid container info creation"""
-        container = ContainerInfo(
-            name="nginx",
-            image="nginx:1.20",
-            ready=True,
-            restart_count=0,
-            state="running",
-            limits=sample_resource_requirements,
-            requests=sample_resource_requirements,
-        )
-        assert container.name == "nginx"
-        assert container.image == "nginx:1.20"
-        assert container.ready is True
-        assert container.restart_count == 0
-        assert container.state == "running"
-        assert container.limits.cpu == "500m"
-        assert container.requests.memory == "256Mi"
-
-    def test_container_info_required_fields(self):
-        """Test container info with only required fields"""
-        container = ContainerInfo(
-            name="minimal", image="alpine:latest", ready=False, state="waiting"
-        )
-        assert container.name == "minimal"
-        assert container.restart_count == 0  # Default value
-        assert container.limits is None
-        assert container.requests is None
-
-    def test_container_info_validation_error(self):
-        """Test container info validation errors"""
-        with pytest.raises(ValidationError):
-            ContainerInfo()  # Missing required fields
-
-
-class TestPodCondition:
-    """Test PodCondition model"""
-
-    def test_pod_condition_valid(self):
-        """Test valid pod condition creation"""
-        condition = PodCondition(type="Ready", status="True", reason="PodReady")
-        assert condition.type == "Ready"
-        assert condition.status == "True"
-        assert condition.reason == "PodReady"
-
-    def test_pod_condition_optional_reason(self):
-        """Test pod condition without reason"""
-        condition = PodCondition(type="PodScheduled", status="True")
-        assert condition.type == "PodScheduled"
-        assert condition.reason is None
-
-
-class TestPodInfo:
-    """Test PodInfo model"""
-
-    def test_pod_info_valid(self, sample_container_info, sample_pod_condition):
-        """Test valid pod info creation"""
-        pod = PodInfo(
-            name="test-pod",
-            namespace="test-ns",
-            status="Running",
-            ready="1/1",
-            age="5m",  # Add required age field
-            containers=[sample_container_info],
-            conditions=[sample_pod_condition],
-        )
-        assert pod.name == "test-pod"
-        assert pod.namespace == "test-ns"
-        assert pod.status == "Running"
-        assert pod.ready == "1/1"
-        assert len(pod.containers) == 1
-        assert len(pod.conditions) == 1
-        assert pod.restarts == 0  # Default
-        assert pod.service_account == "default"  # Default
-
-    def test_pod_info_empty_containers_and_conditions(self):
-        """Test pod info with empty containers and conditions"""
-        pod = PodInfo(
-            name="empty-pod",
-            namespace="test-ns",
-            status="Pending",
-            ready="0/0",
-            age="1m",  # Add required age field
-        )
-        assert len(pod.containers) == 0
-        assert len(pod.conditions) == 0
-
-    def test_pod_info_validation_error(self):
-        """Test pod info validation errors"""
-        with pytest.raises(ValidationError):
-            PodInfo()  # Missing required fields
 
 
 class TestDeploymentCondition:
@@ -171,42 +46,6 @@ class TestDeploymentCondition:
         assert condition.type == "Progressing"
         assert condition.reason is None
         assert condition.message is None
-
-
-class TestDeploymentInfo:
-    """Test DeploymentInfo model"""
-
-    def test_deployment_info_valid(self, sample_deployment_condition):
-        """Test valid deployment info creation"""
-        deployment = DeploymentInfo(
-            name="web-app",
-            namespace="production",
-            desired_replicas=5,
-            ready_replicas=3,
-            available_replicas=3,
-            updated_replicas=4,
-            strategy="RollingUpdate",
-            conditions=[sample_deployment_condition],
-        )
-        assert deployment.name == "web-app"
-        assert deployment.namespace == "production"
-        assert deployment.desired_replicas == 5
-        assert deployment.ready_replicas == 3
-        assert deployment.available_replicas == 3
-        assert deployment.updated_replicas == 4
-        assert deployment.strategy == "RollingUpdate"
-        assert len(deployment.conditions) == 1
-
-    def test_deployment_info_defaults(self):
-        """Test deployment info with default values"""
-        deployment = DeploymentInfo(
-            name="minimal-deploy", namespace="test", desired_replicas=1
-        )
-        assert deployment.ready_replicas == 0  # Default
-        assert deployment.available_replicas == 0  # Default
-        assert deployment.updated_replicas == 0  # Default
-        assert deployment.strategy is None
-        assert len(deployment.conditions) == 0
 
 
 class TestOpenShiftEvent:
@@ -262,41 +101,13 @@ class TestLogEntry:
         assert entry.container is None
 
 
-class TestLogResponse:
-    """Test LogResponse model"""
-
-    def test_log_response_complete(self, sample_log_entries):
-        """Test log response with all fields"""
-        response = LogResponse(
-            pod_name="web-pod",
-            namespace="production",
-            container="nginx",
-            pattern_filter="ERROR",
-            total_lines=500,
-            entries=sample_log_entries,
-        )
-        assert response.pod_name == "web-pod"
-        assert response.namespace == "production"
-        assert response.container == "nginx"
-        assert response.pattern_filter == "ERROR"
-        assert response.total_lines == 500
-        assert len(response.entries) == 3
-
-    def test_log_response_minimal(self):
-        """Test log response with only required fields"""
-        response = LogResponse(pod_name="simple-pod", namespace="test", total_lines=10)
-        assert response.pod_name == "simple-pod"
-        assert response.container is None
-        assert response.pattern_filter is None
-        assert len(response.entries) == 0  # Default empty list
-
-
 class TestToolError:
     """Test ToolError model"""
 
     def test_tool_error_complete(self):
         """Test tool error with all fields"""
         error = ToolError(
+            tool_name="test_tool",
             type=ErrorType.PERMISSION,
             message="Access denied to namespace",
             recoverable=False,
@@ -312,6 +123,7 @@ class TestToolError:
     def test_tool_error_minimal(self):
         """Test tool error with only required fields"""
         error = ToolError(
+            tool_name="test_tool",
             type=ErrorType.UNKNOWN,
             message="Unexpected error",
             recoverable=True,
@@ -333,116 +145,349 @@ class TestToolError:
         assert ErrorType.UNKNOWN == "unknown"
 
 
-class TestToolResult:
-    """Test ToolResult model"""
+# Legacy ToolResult tests removed - we now use specific result types instead
 
-    def test_tool_result_success(self, sample_pod_info):
-        """Test successful tool result"""
-        result = ToolResult(
-            success=True,
-            data=sample_pod_info,
-            error=None,
-            tool_name="execute_oc_get_pod",
-            namespace="test-ns",
-        )
-        assert result.success is True
-        assert result.data == sample_pod_info
-        assert result.error is None
-        assert result.tool_name == "execute_oc_get_pod"
-        assert result.namespace == "test-ns"
 
-    def test_tool_result_failure(self, sample_tool_error):
-        """Test failed tool result"""
-        result = ToolResult(
-            success=False,
-            data=None,
-            error=sample_tool_error,
-            tool_name="execute_oc_get_pod",
-            namespace="test-ns",
-        )
-        assert result.success is False
-        assert result.data is None
-        assert result.error == sample_tool_error
-        assert result.tool_name == "execute_oc_get_pod"
+class TestContainerDetail:
+    """Test ContainerDetail model"""
 
-    def test_tool_result_properties(self, sample_tool_error):
-        """Test ToolResult computed properties"""
-        # Test non-recoverable error
-        result = ToolResult(
-            success=False, data=None, error=sample_tool_error, tool_name="test_tool"
+    def test_container_detail_valid(self):
+        """Test valid container detail creation with all fields"""
+        container = ContainerDetail(
+            name="nginx-debug",
+            image="nginx:1.21-alpine",
+            ready=True,
+            restart_count=2,
+            state="running",
+            limits={"cpu": "1000m", "memory": "512Mi"},
+            requests={"cpu": "200m", "memory": "128Mi"},
+            liveness_probe={
+                "httpGet": {"path": "/health", "port": 8080},
+                "initialDelaySeconds": 30,
+            },
+            readiness_probe={
+                "httpGet": {"path": "/ready", "port": 8080},
+                "periodSeconds": 10,
+            },
+            exit_code=None,
+            termination_reason=None,
+            termination_message=None,
+            ports=[{"containerPort": 80, "protocol": "TCP"}],
+            environment=[{"name": "ENV", "value": "production"}],
         )
-        assert result.is_recoverable_error is False
-        assert result.error_type == ErrorType.NOT_FOUND
+        assert container.name == "nginx-debug"
+        assert container.image == "nginx:1.21-alpine"
+        assert container.ready is True
+        assert container.restart_count == 2
+        assert container.state == "running"
+        assert container.limits["cpu"] == "1000m"
+        assert container.requests["memory"] == "128Mi"
+        assert container.liveness_probe["httpGet"]["path"] == "/health"
+        assert container.readiness_probe["periodSeconds"] == 10
+        assert len(container.ports) == 1
+        assert container.ports[0]["containerPort"] == 80
+        assert len(container.environment) == 1
+        assert container.environment[0]["name"] == "ENV"
 
-        # Test recoverable error
-        recoverable_error = ToolError(
-            type=ErrorType.TIMEOUT,
-            message="Request timed out",
-            recoverable=True,
-            suggestion="Retry the operation",
+    def test_container_detail_required_only(self):
+        """Test container detail with only required fields"""
+        container = ContainerDetail(
+            name="minimal-container",
+            image="alpine:latest",
+            ready=False,
+            restart_count=0,
+            state="waiting",
         )
-        result = ToolResult(
-            success=False, data=None, error=recoverable_error, tool_name="test_tool"
-        )
-        assert result.is_recoverable_error is True
-        assert result.error_type == ErrorType.TIMEOUT
+        assert container.name == "minimal-container"
+        assert container.ready is False
+        assert container.restart_count == 0
+        assert container.state == "waiting"
+        assert container.limits is None
+        assert container.requests is None
+        assert container.liveness_probe is None
+        assert container.readiness_probe is None
+        assert container.exit_code is None
+        assert container.termination_reason is None
+        assert container.termination_message is None
+        assert len(container.ports) == 0  # Default empty list
+        assert len(container.environment) == 0  # Default empty list
 
-        # Test successful result
-        result = ToolResult(
-            success=True, data={"test": "data"}, error=None, tool_name="test_tool"
+    def test_container_detail_terminated_state(self):
+        """Test container detail with termination information"""
+        container = ContainerDetail(
+            name="crashed-container",
+            image="buggy-app:v1.0",
+            ready=False,
+            restart_count=5,
+            state="terminated",
+            exit_code=1,
+            termination_reason="Error",
+            termination_message="Container failed to start",
         )
-        assert result.is_recoverable_error is False
-        assert result.error_type is None
+        assert container.state == "terminated"
+        assert container.exit_code == 1
+        assert container.termination_reason == "Error"
+        assert container.termination_message == "Container failed to start"
 
-    def test_tool_result_arbitrary_data_types(
-        self, sample_pod_info, sample_log_response
-    ):
-        """Test ToolResult with different data types"""
-        # Pod data
-        result = ToolResult(
-            success=True, data=sample_pod_info, error=None, tool_name="pod_tool"
-        )
-        assert isinstance(result.data, PodInfo)
-
-        # List of pods
-        result = ToolResult(
-            success=True, data=[sample_pod_info], error=None, tool_name="pods_tool"
-        )
-        assert isinstance(result.data, list)
-        assert len(result.data) == 1
-
-        # Log response
-        result = ToolResult(
-            success=True, data=sample_log_response, error=None, tool_name="logs_tool"
-        )
-        assert isinstance(result.data, LogResponse)
-
-        # Dictionary data
-        result = ToolResult(
-            success=True,
-            data={"namespace": "test", "alert_name": "TestAlert"},
-            error=None,
-            tool_name="context_tool",
-        )
-        assert isinstance(result.data, dict)
-        assert result.data["namespace"] == "test"
-
-    def test_tool_result_validation_errors(self):
-        """Test ToolResult validation"""
-        # Missing required fields
+    def test_container_detail_validation_error(self):
+        """Test container detail validation errors"""
         with pytest.raises(ValidationError):
-            ToolResult()
+            ContainerDetail()  # Missing required fields
 
-        # Invalid success/error combination
+
+class TestPodDetail:
+    """Test PodDetail model"""
+
+    def test_pod_detail_valid(self):
+        """Test valid pod detail creation with all fields"""
+        pod = PodDetail(
+            name="web-app-pod-abc123",
+            status="Running",
+            ready="2/2",
+            restarts=1,
+            pod_ip="10.128.2.15",
+            host_ip="192.168.1.100",
+            labels={"app": "web-app", "version": "v1.2"},
+            annotations={"deployment.kubernetes.io/revision": "3"},
+            service_account="web-app-sa",
+            security_context={
+                "runAsUser": 1001,
+                "runAsGroup": 1001,
+                "fsGroup": 1001,
+            },
+            owner_references=[{"kind": "ReplicaSet", "name": "web-app-rs-xyz789"}],
+        )
+        assert pod.name == "web-app-pod-abc123"
+        assert pod.status == "Running"
+        assert pod.ready == "2/2"
+        assert pod.restarts == 1
+        assert pod.pod_ip == "10.128.2.15"
+        assert pod.host_ip == "192.168.1.100"
+        assert pod.labels["app"] == "web-app"
+        assert pod.annotations["deployment.kubernetes.io/revision"] == "3"
+        assert pod.service_account == "web-app-sa"
+        assert pod.security_context["runAsUser"] == 1001
+        assert len(pod.owner_references) == 1
+        assert pod.owner_references[0]["kind"] == "ReplicaSet"
+
+    def test_pod_detail_minimal(self):
+        """Test pod detail with only required fields"""
+        pod = PodDetail(
+            name="minimal-pod",
+            status="Pending",
+            ready="0/1",
+            restarts=0,
+        )
+        assert pod.name == "minimal-pod"
+        assert pod.status == "Pending"
+        assert pod.ready == "0/1"
+        assert pod.restarts == 0
+        assert pod.pod_ip is None
+        assert pod.host_ip is None
+        assert len(pod.labels) == 0  # Default empty dict
+        assert len(pod.annotations) == 0  # Default empty dict
+        assert pod.service_account is None
+        assert pod.security_context is None
+        assert len(pod.owner_references) == 0  # Default empty list
+
+    def test_pod_detail_validation_error(self):
+        """Test pod detail validation errors"""
         with pytest.raises(ValidationError):
-            ToolResult(
-                success=True,
-                data=None,
-                error=ToolError(
-                    type=ErrorType.UNKNOWN,
-                    message="Error",
-                    recoverable=False,
-                    suggestion="Fix it",
-                ),
-                tool_name="invalid_tool",
+            PodDetail()  # Missing required fields
+
+
+class TestPodDetailedResult:
+    """Test PodDetailedResult model"""
+
+    def test_pod_detailed_result_valid(self):
+        """Test valid pod detailed result creation"""
+        pod_detail = PodDetail(
+            name="test-pod",
+            status="Running",
+            ready="1/1",
+            restarts=0,
+            pod_ip="10.1.1.1",
+        )
+        container_detail = ContainerDetail(
+            name="main-container",
+            image="nginx:latest",
+            ready=True,
+            restart_count=0,
+            state="running",
+        )
+
+        result = PodDetailedResult(
+            tool_name="execute_oc_describe_pod",
+            namespace="test-namespace",
+            pod=pod_detail,
+            containers=[container_detail],
+        )
+
+        assert result.tool_name == "execute_oc_describe_pod"
+        assert result.namespace == "test-namespace"
+        assert result.pod.name == "test-pod"
+        assert len(result.containers) == 1
+        assert result.containers[0].name == "main-container"
+
+    def test_pod_detailed_result_multiple_containers(self):
+        """Test pod detailed result with multiple containers"""
+        pod_detail = PodDetail(
+            name="multi-container-pod",
+            status="Running",
+            ready="3/3",
+            restarts=0,
+        )
+        containers = []
+        for i in range(3):
+            container = ContainerDetail(
+                name=f"container-{i}",
+                image=f"image-{i}:latest",
+                ready=True,
+                restart_count=0,
+                state="running",
             )
+            containers.append(container)
+
+        result = PodDetailedResult(
+            tool_name="execute_oc_describe_pod",
+            namespace="production",
+            pod=pod_detail,
+            containers=containers,
+        )
+
+        assert len(result.containers) == 3
+        assert result.containers[1].name == "container-1"
+
+    def test_pod_detailed_result_validation_error(self):
+        """Test pod detailed result validation errors"""
+        with pytest.raises(ValidationError):
+            PodDetailedResult()  # Missing required fields
+
+
+class TestDeploymentDetail:
+    """Test DeploymentDetail model"""
+
+    def test_deployment_detail_valid(self):
+        """Test valid deployment detail creation with all fields"""
+        conditions = [
+            DeploymentCondition(
+                type="Available",
+                status="True",
+                reason="MinimumReplicasAvailable",
+                message="Deployment has minimum availability.",
+            ),
+            DeploymentCondition(
+                type="Progressing",
+                status="True",
+                reason="NewReplicaSetAvailable",
+                message="ReplicaSet has successfully progressed.",
+            ),
+        ]
+
+        deployment = DeploymentDetail(
+            tool_name="execute_oc_describe_deployment",
+            namespace="production",
+            name="web-app-deployment",
+            ready_replicas=5,
+            desired_replicas=5,
+            available_replicas=5,
+            updated_replicas=5,
+            unavailable_replicas=0,
+            strategy_type="RollingUpdate",
+            max_surge="25%",
+            max_unavailable="25%",
+            observed_generation=10,
+            progress_deadline_seconds=600,
+            labels={"app": "web-app", "env": "production"},
+            selector_labels={"app": "web-app", "version": "stable"},
+            conditions=conditions,
+        )
+
+        assert deployment.tool_name == "execute_oc_describe_deployment"
+        assert deployment.namespace == "production"
+        assert deployment.name == "web-app-deployment"
+        assert deployment.ready_replicas == 5
+        assert deployment.desired_replicas == 5
+        assert deployment.available_replicas == 5
+        assert deployment.updated_replicas == 5
+        assert deployment.unavailable_replicas == 0
+        assert deployment.strategy_type == "RollingUpdate"
+        assert deployment.max_surge == "25%"
+        assert deployment.max_unavailable == "25%"
+        assert deployment.observed_generation == 10
+        assert deployment.progress_deadline_seconds == 600
+        assert deployment.labels["app"] == "web-app"
+        assert deployment.selector_labels["version"] == "stable"
+        assert len(deployment.conditions) == 2
+        assert deployment.conditions[0].type == "Available"
+
+    def test_deployment_detail_minimal(self):
+        """Test deployment detail with only required fields"""
+        deployment = DeploymentDetail(
+            namespace="test",
+            name="minimal-deployment",
+            desired_replicas=1,
+        )
+
+        assert deployment.name == "minimal-deployment"
+        assert deployment.namespace == "test"
+        assert deployment.desired_replicas == 1
+        assert deployment.ready_replicas == 0  # Default
+        assert deployment.available_replicas == 0  # Default
+        assert deployment.updated_replicas == 0  # Default
+        assert deployment.unavailable_replicas == 0  # Default
+        assert deployment.strategy_type is None
+        assert deployment.max_surge is None
+        assert deployment.max_unavailable is None
+        assert deployment.observed_generation is None
+        assert deployment.progress_deadline_seconds is None
+        assert len(deployment.labels) == 0  # Default empty dict
+        assert len(deployment.selector_labels) == 0  # Default empty dict
+        assert len(deployment.conditions) == 0  # Default empty list
+
+    def test_deployment_detail_default_tool_name(self):
+        """Test deployment detail uses default tool name"""
+        deployment = DeploymentDetail(
+            namespace="test",
+            name="test-deployment",
+            desired_replicas=1,
+        )
+        # Should use the default value from the model
+        assert deployment.tool_name == "execute_oc_describe_deployment"
+
+    def test_deployment_detail_validation_error(self):
+        """Test deployment detail validation errors"""
+        with pytest.raises(ValidationError):
+            DeploymentDetail()  # Missing required fields
+
+    def test_deployment_detail_scaling_scenario(self):
+        """Test deployment detail for scaling troubleshooting scenario"""
+        deployment = DeploymentDetail(
+            namespace="staging",
+            name="scaling-app",
+            desired_replicas=10,
+            ready_replicas=7,
+            available_replicas=7,
+            updated_replicas=8,
+            unavailable_replicas=3,
+            strategy_type="RollingUpdate",
+            max_surge="2",
+            max_unavailable="1",
+            observed_generation=5,
+            conditions=[
+                DeploymentCondition(
+                    type="Progressing",
+                    status="True",
+                    reason="ReplicaSetUpdated",
+                    message="Updated replica set has 8 replicas",
+                )
+            ],
+        )
+
+        # Verify scaling-related fields for debugging
+        assert deployment.desired_replicas == 10
+        assert deployment.ready_replicas == 7
+        assert deployment.unavailable_replicas == 3
+        assert deployment.max_surge == "2"
+        assert deployment.max_unavailable == "1"
+        assert deployment.conditions[0].reason == "ReplicaSetUpdated"

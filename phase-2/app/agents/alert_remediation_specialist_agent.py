@@ -38,7 +38,7 @@ STEP 1: Collect information about the alert
 - Call read_alert_diagnostics_data tool
 
 STEP 2: Use your tools to collect new information about the project
-- Use execute_oc_get_pods, execute_oc_get_pod, execute_oc_describe_pod, execute_oc_get_events, execute_oc_logs, execute_oc_get_deployments, execute_oc_get_deployment_resources, execute_oc_describe_deployment, execute_oc_get_deployment_events for investigation
+- Use execute_oc_get_pods, execute_oc_describe_pod, execute_oc_describe_pod, execute_oc_get_events, execute_oc_logs, execute_oc_get_deployments, execute_oc_get_deployment_resources, execute_oc_describe_deployment, execute_oc_get_deployment_events for investigation
 - LEVERAGE STRUCTURED DATA: Access pod.status, deployment.ready_replicas, etc. directly
 - EFFICIENT ANALYSIS: Use field access for faster problem identification
 - IMPORTANT: Try to reduce the number of tools - you are limited to {MAX_TOOLS} tool calls

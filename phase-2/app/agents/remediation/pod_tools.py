@@ -273,11 +273,13 @@ def _extract_owner_references(pod_metadata: dict) -> list[dict]:
     """Extract owner references from pod metadata."""
     owner_refs = []
     for ref in pod_metadata.get("ownerReferences", []):
-        owner_refs.append({
-            "kind": ref.get("kind", ""),
-            "name": ref.get("name", ""),
-            "uid": ref.get("uid", ""),
-        })
+        owner_refs.append(
+            {
+                "kind": ref.get("kind", ""),
+                "name": ref.get("name", ""),
+                "uid": ref.get("uid", ""),
+            }
+        )
     return owner_refs
 
 
@@ -357,7 +359,7 @@ def execute_oc_get_pods(namespace: str) -> ToolResult:
 
 
 @track_tool_usage
-def execute_oc_get_pod(pod_name: str, namespace: str) -> ToolResult:
+def execute_oc_describe_pod(pod_name: str, namespace: str) -> ToolResult:
     """
     Get detailed pod information for debugging purposes. Supports partial names.
 
@@ -374,7 +376,7 @@ def execute_oc_get_pod(pod_name: str, namespace: str) -> ToolResult:
         success, actual_pod_name = find_pod_by_name(pod_name, namespace)
         if not success:
             return _handle_not_found_error(
-                "execute_oc_get_pod",
+                "execute_oc_describe_pod",
                 f"Pod '{pod_name}' not found in namespace '{namespace}': {actual_pod_name}",
                 namespace,
             )
@@ -388,7 +390,7 @@ def execute_oc_get_pod(pod_name: str, namespace: str) -> ToolResult:
             return _handle_oc_command_error(
                 returncode,
                 stderr,
-                "execute_oc_get_pod",
+                "execute_oc_describe_pod",
                 f"get pod '{actual_pod_name}'",
                 namespace,
             )
@@ -436,15 +438,17 @@ def execute_oc_get_pod(pod_name: str, namespace: str) -> ToolResult:
             )
 
         except json.JSONDecodeError as e:
-            return _handle_json_parse_error(e, "execute_oc_get_pod", stdout, namespace)
+            return _handle_json_parse_error(
+                e, "execute_oc_describe_pod", stdout, namespace
+            )
 
     except subprocess.TimeoutExpired:
         return _handle_timeout_error(
-            "execute_oc_get_pod", f"pod '{pod_name}'", namespace
+            "execute_oc_describe_pod", f"pod '{pod_name}'", namespace
         )
     except Exception as e:
         return _handle_generic_error(
-            e, "execute_oc_get_pod", f"getting pod '{pod_name}'", namespace
+            e, "execute_oc_describe_pod", f"getting pod '{pod_name}'", namespace
         )
 
 
@@ -535,8 +539,8 @@ pod_tools = [
         """,
     ),
     FunctionTool.from_defaults(
-        fn=execute_oc_get_pod,
-        name="execute_oc_get_pod",
+        fn=execute_oc_describe_pod,
+        name="execute_oc_describe_pod",
         description="""Get comprehensive detailed information about a specific pod for debugging.
 
         Args:

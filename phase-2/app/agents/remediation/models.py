@@ -32,6 +32,9 @@ class ToolResult(BaseModel):
     tool_name: str = Field(description="Name of the tool that was executed")
     namespace: Optional[str] = Field(None, description="Target namespace if applicable")
 
+    def __str__(self) -> str:
+        """Ultra-compact string representation without any whitespace to reduce LLM tokens."""
+        return self.model_dump_json(exclude_unset=True, exclude_none=True, by_alias=True)
 
 class ToolError(ToolResult):
     """Structured error information with recovery guidance"""
@@ -202,21 +205,39 @@ class ContainerDetail(BaseModel):
     state: str = Field(description="Container state: running, waiting, terminated")
 
     # Resource Information (debugging resource issues)
-    limits: Optional[Dict[str, str]] = Field(None, description="Resource limits (CPU, memory)")
-    requests: Optional[Dict[str, str]] = Field(None, description="Resource requests (CPU, memory)")
+    limits: Optional[Dict[str, str]] = Field(
+        None, description="Resource limits (CPU, memory)"
+    )
+    requests: Optional[Dict[str, str]] = Field(
+        None, description="Resource requests (CPU, memory)"
+    )
 
     # Health Check Configuration (debugging probe failures)
-    liveness_probe: Optional[Dict[str, Any]] = Field(None, description="Liveness probe configuration")
-    readiness_probe: Optional[Dict[str, Any]] = Field(None, description="Readiness probe configuration")
+    liveness_probe: Optional[Dict[str, Any]] = Field(
+        None, description="Liveness probe configuration"
+    )
+    readiness_probe: Optional[Dict[str, Any]] = Field(
+        None, description="Readiness probe configuration"
+    )
 
     # State Details (debugging crashes/failures)
-    exit_code: Optional[int] = Field(None, description="Container exit code if terminated")
-    termination_reason: Optional[str] = Field(None, description="Reason for container termination")
-    termination_message: Optional[str] = Field(None, description="Container termination message")
+    exit_code: Optional[int] = Field(
+        None, description="Container exit code if terminated"
+    )
+    termination_reason: Optional[str] = Field(
+        None, description="Reason for container termination"
+    )
+    termination_message: Optional[str] = Field(
+        None, description="Container termination message"
+    )
 
     # Configuration (debugging env/networking issues)
-    ports: List[Dict[str, Any]] = Field(default_factory=list, description="Container port configurations")
-    environment: List[Dict[str, str]] = Field(default_factory=list, description="Environment variables")
+    ports: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Container port configurations"
+    )
+    environment: List[Dict[str, str]] = Field(
+        default_factory=list, description="Environment variables"
+    )
 
 
 class PodDetail(BaseModel):
@@ -234,26 +255,40 @@ class PodDetail(BaseModel):
 
     # Configuration Context (debugging scheduling/security)
     labels: Dict[str, str] = Field(default_factory=dict, description="Pod labels")
-    annotations: Dict[str, str] = Field(default_factory=dict, description="Pod annotations")
-    service_account: Optional[str] = Field(None, description="Service account used by pod")
-    security_context: Optional[Dict[str, Any]] = Field(None, description="Pod security context")
+    annotations: Dict[str, str] = Field(
+        default_factory=dict, description="Pod annotations"
+    )
+    service_account: Optional[str] = Field(
+        None, description="Service account used by pod"
+    )
+    security_context: Optional[Dict[str, Any]] = Field(
+        None, description="Pod security context"
+    )
 
     # Ownership (debugging creation/lifecycle)
-    owner_references: List[Dict[str, str]] = Field(default_factory=list, description="Pod owner references")
+    owner_references: List[Dict[str, str]] = Field(
+        default_factory=list, description="Pod owner references"
+    )
 
 
 class PodDetailedResult(ToolResult):
     """Detailed pod information for debugging"""
 
-    tool_name: str = Field(default="execute_oc_get_pod", description="Name of the tool")
+    tool_name: str = Field(
+        default="execute_oc_describe_pod", description="Name of the tool"
+    )
     pod: PodDetail = Field(description="Detailed pod information")
-    containers: List[ContainerDetail] = Field(default_factory=list, description="Detailed container information")
+    containers: List[ContainerDetail] = Field(
+        default_factory=list, description="Detailed container information"
+    )
 
 
 class DeploymentDetail(ToolResult):
     """Enhanced deployment information for debugging"""
 
-    tool_name: str = Field(default="execute_oc_describe_deployment", description="Name of the tool")
+    tool_name: str = Field(
+        default="execute_oc_describe_deployment", description="Name of the tool"
+    )
 
     # Basic deployment information
     name: str = Field(description="Deployment name")
@@ -266,15 +301,27 @@ class DeploymentDetail(ToolResult):
     # Strategy Details (debugging rollout problems)
     strategy_type: Optional[str] = Field(None, description="Deployment strategy type")
     max_surge: Optional[str] = Field(None, description="Maximum surge during rollout")
-    max_unavailable: Optional[str] = Field(None, description="Maximum unavailable during rollout")
+    max_unavailable: Optional[str] = Field(
+        None, description="Maximum unavailable during rollout"
+    )
 
     # Rollout Status (debugging stuck deployments)
-    observed_generation: Optional[int] = Field(None, description="Observed generation for rollout tracking")
-    progress_deadline_seconds: Optional[int] = Field(None, description="Progress deadline for rollouts")
+    observed_generation: Optional[int] = Field(
+        None, description="Observed generation for rollout tracking"
+    )
+    progress_deadline_seconds: Optional[int] = Field(
+        None, description="Progress deadline for rollouts"
+    )
 
     # Configuration Context
-    labels: Dict[str, str] = Field(default_factory=dict, description="Deployment labels")
-    selector_labels: Dict[str, str] = Field(default_factory=dict, description="Pod selector labels")
+    labels: Dict[str, str] = Field(
+        default_factory=dict, description="Deployment labels"
+    )
+    selector_labels: Dict[str, str] = Field(
+        default_factory=dict, description="Pod selector labels"
+    )
 
     # Conditions (enhanced with more detail)
-    conditions: List[DeploymentCondition] = Field(default_factory=list, description="Deployment conditions")
+    conditions: List[DeploymentCondition] = Field(
+        default_factory=list, description="Deployment conditions"
+    )
