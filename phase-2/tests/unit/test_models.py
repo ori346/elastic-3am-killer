@@ -19,7 +19,6 @@ from agents.remediation.models import (
     PodDetail,
     PodDetailedResult,
     ToolError,
-    ToolResult,
 )
 from pydantic import ValidationError
 
@@ -317,13 +316,13 @@ class TestPodDetailedResult:
         )
 
         result = PodDetailedResult(
-            tool_name="execute_oc_describe_pod",
+            tool_name="oc_describe_pod",
             namespace="test-namespace",
             pod=pod_detail,
             containers=[container_detail],
         )
 
-        assert result.tool_name == "execute_oc_describe_pod"
+        assert result.tool_name == "oc_describe_pod"
         assert result.namespace == "test-namespace"
         assert result.pod.name == "test-pod"
         assert len(result.containers) == 1
@@ -349,7 +348,7 @@ class TestPodDetailedResult:
             containers.append(container)
 
         result = PodDetailedResult(
-            tool_name="execute_oc_describe_pod",
+            tool_name="oc_describe_pod",
             namespace="production",
             pod=pod_detail,
             containers=containers,
@@ -385,7 +384,7 @@ class TestDeploymentDetail:
         ]
 
         deployment = DeploymentDetail(
-            tool_name="execute_oc_describe_deployment",
+            tool_name="oc_describe_deployment",
             namespace="production",
             name="web-app-deployment",
             ready_replicas=5,
@@ -403,7 +402,7 @@ class TestDeploymentDetail:
             conditions=conditions,
         )
 
-        assert deployment.tool_name == "execute_oc_describe_deployment"
+        assert deployment.tool_name == "oc_describe_deployment"
         assert deployment.namespace == "production"
         assert deployment.name == "web-app-deployment"
         assert deployment.ready_replicas == 5
@@ -453,7 +452,7 @@ class TestDeploymentDetail:
             desired_replicas=1,
         )
         # Should use the default value from the model
-        assert deployment.tool_name == "execute_oc_describe_deployment"
+        assert deployment.tool_name == "oc_describe_deployment"
 
     def test_deployment_detail_validation_error(self):
         """Test deployment detail validation errors"""

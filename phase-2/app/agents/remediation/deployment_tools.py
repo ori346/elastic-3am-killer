@@ -42,7 +42,7 @@ def _extract_deployment_selectors(deployment_spec: dict) -> dict:
 
 
 @track_tool_usage
-def execute_oc_get_deployments(namespace: str) -> ToolResult:
+def oc_get_deployments(namespace: str) -> ToolResult:
     """
     List deployments in namespace with basic status (replica counts, strategy).
 
@@ -63,7 +63,7 @@ def execute_oc_get_deployments(namespace: str) -> ToolResult:
             return create_error_result(
                 error_type=error_type,
                 message=f"Failed to get deployments in namespace '{namespace}': {stderr}",
-                tool_name="execute_oc_get_deployments",
+                tool_name="oc_get_deployments",
                 recoverable=recoverable,
                 raw_output=stderr,
                 namespace=namespace,
@@ -97,7 +97,7 @@ def execute_oc_get_deployments(namespace: str) -> ToolResult:
             return create_error_result(
                 error_type=ErrorType.SYNTAX,
                 message=f"Failed to parse deployments JSON: {str(e)}",
-                tool_name="execute_oc_get_deployments",
+                tool_name="oc_get_deployments",
                 raw_output=stdout[:500],
                 namespace=namespace,
             )
@@ -106,7 +106,7 @@ def execute_oc_get_deployments(namespace: str) -> ToolResult:
         return create_error_result(
             error_type=ErrorType.TIMEOUT,
             message="Command timed out",
-            tool_name="execute_oc_get_deployments",
+            tool_name="oc_get_deployments",
             recoverable=True,
             namespace=namespace,
         )
@@ -114,15 +114,13 @@ def execute_oc_get_deployments(namespace: str) -> ToolResult:
         return create_error_result(
             error_type=ErrorType.UNKNOWN,
             message=f"Unexpected error getting deployments: {str(e)}",
-            tool_name="execute_oc_get_deployments",
+            tool_name="oc_get_deployments",
             namespace=namespace,
         )
 
 
 @track_tool_usage
-def execute_oc_get_deployment_resources(
-    deployment_name: str, namespace: str
-) -> ToolResult:
+def oc_get_deployment_resources(deployment_name: str, namespace: str) -> ToolResult:
     """
     Get deployment container resource limits and requests.
 
@@ -143,7 +141,7 @@ def execute_oc_get_deployment_resources(
             return create_error_result(
                 error_type=error_type,
                 message=f"Failed to get deployment '{deployment_name}': {stderr}",
-                tool_name="execute_oc_get_deployment_resources",
+                tool_name="oc_get_deployment_resources",
                 recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
                 raw_output=stderr,
                 namespace=namespace,
@@ -179,7 +177,7 @@ def execute_oc_get_deployment_resources(
             return create_error_result(
                 error_type=ErrorType.SYNTAX,
                 message=f"Failed to parse deployment JSON: {str(e)}",
-                tool_name="execute_oc_get_deployment_resources",
+                tool_name="oc_get_deployment_resources",
                 raw_output=stdout[:500],
                 namespace=namespace,
             )
@@ -188,7 +186,7 @@ def execute_oc_get_deployment_resources(
         return create_error_result(
             error_type=ErrorType.TIMEOUT,
             message=f"Command timed out for deployment '{deployment_name}'",
-            tool_name="execute_oc_get_deployment_resources",
+            tool_name="oc_get_deployment_resources",
             recoverable=True,
             namespace=namespace,
         )
@@ -196,13 +194,13 @@ def execute_oc_get_deployment_resources(
         return create_error_result(
             error_type=ErrorType.UNKNOWN,
             message=f"Unexpected error getting deployment '{deployment_name}': {str(e)}",
-            tool_name="execute_oc_get_deployment_resources",
+            tool_name="oc_get_deployment_resources",
             namespace=namespace,
         )
 
 
 @track_tool_usage
-def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> ToolResult:
+def oc_describe_deployment(deployment_name: str, namespace: str) -> ToolResult:
     """
     Get comprehensive deployment information for debugging purposes.
 
@@ -223,7 +221,7 @@ def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> Tool
             return create_error_result(
                 error_type=error_type,
                 message=f"Failed to describe deployment '{deployment_name}': {stderr}",
-                tool_name="execute_oc_describe_deployment",
+                tool_name="oc_describe_deployment",
                 recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
                 raw_output=stderr,
                 namespace=namespace,
@@ -274,7 +272,7 @@ def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> Tool
             return create_error_result(
                 error_type=ErrorType.SYNTAX,
                 message=f"Failed to parse deployment JSON: {str(e)}",
-                tool_name="execute_oc_describe_deployment",
+                tool_name="oc_describe_deployment",
                 raw_output=stdout[:500],
                 namespace=namespace,
             )
@@ -283,7 +281,7 @@ def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> Tool
         return create_error_result(
             error_type=ErrorType.TIMEOUT,
             message=f"Command timed out for deployment '{deployment_name}'",
-            tool_name="execute_oc_describe_deployment",
+            tool_name="oc_describe_deployment",
             recoverable=True,
             namespace=namespace,
         )
@@ -291,7 +289,7 @@ def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> Tool
         return create_error_result(
             error_type=ErrorType.UNKNOWN,
             message=f"Unexpected error describing deployment '{deployment_name}': {str(e)}",
-            tool_name="execute_oc_describe_deployment",
+            tool_name="oc_describe_deployment",
             namespace=namespace,
         )
 
@@ -299,53 +297,18 @@ def execute_oc_describe_deployment(deployment_name: str, namespace: str) -> Tool
 # Tool definitions for LlamaIndex
 deployment_tools = [
     FunctionTool.from_defaults(
-        fn=execute_oc_get_deployments,
-        name="execute_oc_get_deployments",
-        description="""List all deployments in a namespace with basic status information.
-
-        Args:
-        - namespace (str): OpenShift namespace to query
-
-        Returns:
-        - DeploymentListResult: Contains list of DeploymentSummary objects with name, replica counts, and strategy
-
-        Use for: Deployment overview, scaling status checks, identifying problematic deployments
-        """,
+        fn=oc_get_deployments,
+        name="oc_get_deployments",
+        description="List deployments in namespace with basic status. Args: namespace (str) - target namespace. Returns: DeploymentListResult with replica counts and strategy. Use: deployment overview and scaling status checks.",
     ),
     FunctionTool.from_defaults(
-        fn=execute_oc_get_deployment_resources,
-        name="execute_oc_get_deployment_resources",
-        description="""Get deployment container resource configuration.
-
-        Args:
-        - deployment_name (str): Name of the deployment to analyze
-        - namespace (str): OpenShift namespace containing the deployment
-
-        Returns:
-        - DeploymentResources: Contains per-container resource limits/requests (CPU, memory, GPU)
-
-        Use for: Resource analysis, OOMKilled investigations, CPU throttling issues, scaling decisions
-        """,
+        fn=oc_get_deployment_resources,
+        name="oc_get_deployment_resources",
+        description="Get deployment container resource configuration. Args: deployment_name (str), namespace (str). Returns: DeploymentResources with CPU/memory limits and requests. Use: resource analysis and OOMKilled investigations.",
     ),
     FunctionTool.from_defaults(
-        fn=execute_oc_describe_deployment,
-        name="execute_oc_describe_deployment",
-        description="""Get comprehensive deployment information for debugging purposes.
-
-        Args:
-        - deployment_name (str): Name of the deployment to analyze
-        - namespace (str): OpenShift namespace containing the deployment
-
-        Returns:
-        - DeploymentDetail: Contains detailed deployment information including:
-          * Basic replica counts (ready, desired, available, updated, unavailable)
-          * Strategy details (type, maxSurge, maxUnavailable)
-          * Rollout status (observedGeneration, progressDeadlineSeconds)
-          * Configuration context (labels, selector labels)
-          * Deployment conditions with full details
-
-        Use for: Advanced debugging of deployment failures, stuck rollouts, scaling issues,
-        rollout strategy problems, and deployment configuration troubleshooting
-        """,
+        fn=oc_describe_deployment,
+        name="oc_describe_deployment",
+        description="Get comprehensive deployment debugging info. Args: deployment_name (str), namespace (str). Returns: DeploymentDetail with replica counts, strategy, rollout status, conditions. Use: deployment failures, stuck rollouts, scaling issues.",
     ),
 ]

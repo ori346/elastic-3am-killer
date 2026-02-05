@@ -22,7 +22,7 @@ from .utils import (
 
 
 @track_tool_usage
-def execute_oc_get_events(
+def oc_get_events(
     namespace: str, tail: int = LOG_COLLECTION.events_tail_size
 ) -> ToolResult:
     """
@@ -46,7 +46,7 @@ def execute_oc_get_events(
             return create_error_result(
                 error_type=error_type,
                 message=f"Failed to get events in namespace '{namespace}': {stderr}",
-                tool_name="execute_oc_get_events",
+                tool_name="oc_get_events",
                 recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
                 raw_output=stderr,
                 namespace=namespace,
@@ -83,7 +83,7 @@ def execute_oc_get_events(
             return create_error_result(
                 error_type=ErrorType.SYNTAX,
                 message=f"Failed to parse events JSON: {str(e)}",
-                tool_name="execute_oc_get_events",
+                tool_name="oc_get_events",
                 raw_output=stdout[:500],
                 namespace=namespace,
             )
@@ -92,7 +92,7 @@ def execute_oc_get_events(
         return create_error_result(
             error_type=ErrorType.TIMEOUT,
             message=f"Command timed out for namespace '{namespace}'",
-            tool_name="execute_oc_get_events",
+            tool_name="oc_get_events",
             recoverable=True,
             namespace=namespace,
         )
@@ -100,15 +100,13 @@ def execute_oc_get_events(
         return create_error_result(
             error_type=ErrorType.UNKNOWN,
             message=f"Unexpected error getting events: {str(e)}",
-            tool_name="execute_oc_get_events",
+            tool_name="oc_get_events",
             namespace=namespace,
         )
 
 
 @track_tool_usage
-def execute_oc_get_deployment_events(
-    deployment_name: str, namespace: str
-) -> ToolResult:
+def oc_get_deployment_events(deployment_name: str, namespace: str) -> ToolResult:
     """
     Get deployment-specific events.
 
@@ -139,7 +137,7 @@ def execute_oc_get_deployment_events(
             return create_error_result(
                 error_type=error_type,
                 message=f"Failed to get events for deployment '{deployment_name}': {stderr}",
-                tool_name="execute_oc_get_deployment_events",
+                tool_name="oc_get_deployment_events",
                 recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
                 raw_output=stderr,
                 namespace=namespace,
@@ -166,7 +164,7 @@ def execute_oc_get_deployment_events(
                 events.append(event)
 
             return OpenShiftEvents(
-                tool_name="execute_oc_get_deployment_events",
+                tool_name="oc_get_deployment_events",
                 namespace=namespace,
                 events=events,
             )
@@ -175,7 +173,7 @@ def execute_oc_get_deployment_events(
             return create_error_result(
                 error_type=ErrorType.SYNTAX,
                 message=f"Failed to parse deployment events JSON: {str(e)}",
-                tool_name="execute_oc_get_deployment_events",
+                tool_name="oc_get_deployment_events",
                 raw_output=stdout[:500],
                 namespace=namespace,
             )
@@ -184,7 +182,7 @@ def execute_oc_get_deployment_events(
         return create_error_result(
             error_type=ErrorType.TIMEOUT,
             message=f"Command timed out for deployment '{deployment_name}' events",
-            tool_name="execute_oc_get_deployment_events",
+            tool_name="oc_get_deployment_events",
             recoverable=True,
             namespace=namespace,
         )
@@ -192,13 +190,13 @@ def execute_oc_get_deployment_events(
         return create_error_result(
             error_type=ErrorType.UNKNOWN,
             message=f"Unexpected error getting deployment '{deployment_name}' events: {str(e)}",
-            tool_name="execute_oc_get_deployment_events",
+            tool_name="oc_get_deployment_events",
             namespace=namespace,
         )
 
 
 @track_tool_usage
-def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
+def oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
     """
     Get pod-specific events. Supports partial pod name matching.
 
@@ -216,7 +214,7 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
             return create_error_result(
                 error_type=ErrorType.NOT_FOUND,
                 message=f"Pod '{pod_name}' not found in namespace '{namespace}': {actual_pod_name}",
-                tool_name="execute_oc_get_pod_events",
+                tool_name="oc_get_pod_events",
                 namespace=namespace,
             )
 
@@ -239,7 +237,7 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
             return create_error_result(
                 error_type=error_type,
                 message=f"Failed to get events for pod '{actual_pod_name}': {stderr}",
-                tool_name="execute_oc_get_pod_events",
+                tool_name="oc_get_pod_events",
                 recoverable=error_type in [ErrorType.TIMEOUT, ErrorType.NETWORK],
                 raw_output=stderr,
                 namespace=namespace,
@@ -266,7 +264,7 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
                 events.append(event)
 
             return OpenShiftEvents(
-                tool_name="execute_oc_get_pod_events",
+                tool_name="oc_get_pod_events",
                 namespace=namespace,
                 events=events,
             )
@@ -275,7 +273,7 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
             return create_error_result(
                 error_type=ErrorType.SYNTAX,
                 message=f"Failed to parse pod events JSON: {str(e)}",
-                tool_name="execute_oc_get_pod_events",
+                tool_name="oc_get_pod_events",
                 raw_output=stdout[:500],
                 namespace=namespace,
             )
@@ -284,7 +282,7 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
         return create_error_result(
             error_type=ErrorType.TIMEOUT,
             message=f"Command timed out for pod '{pod_name}' events",
-            tool_name="execute_oc_get_pod_events",
+            tool_name="oc_get_pod_events",
             recoverable=True,
             namespace=namespace,
         )
@@ -292,7 +290,7 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
         return create_error_result(
             error_type=ErrorType.UNKNOWN,
             message=f"Unexpected error getting pod '{pod_name}' events: {str(e)}",
-            tool_name="execute_oc_get_pod_events",
+            tool_name="oc_get_pod_events",
             namespace=namespace,
         )
 
@@ -300,48 +298,18 @@ def execute_oc_get_pod_events(pod_name: str, namespace: str) -> ToolResult:
 # Tool definitions for LlamaIndex
 event_tools = [
     FunctionTool.from_defaults(
-        fn=execute_oc_get_events,
-        name="execute_oc_get_events",
-        description="""Get recent OpenShift events from a namespace.
-
-        Args:
-        - namespace (str): OpenShift namespace to query
-        - tail (int, optional): Number of recent events to return (default: from config)
-
-        Returns:
-        - OpenShiftEvents: Contains list of OpenShiftEvent objects with type, reason, message, object, count
-
-        Use for: Cluster activity analysis, warning event identification, troubleshooting context
-        """,
+        fn=oc_get_events,
+        name="oc_get_events",
+        description="Get recent OpenShift events from namespace. Args: namespace (str), tail (int) - optional event count. Returns: OpenShiftEvents with type, reason, message, object, count. Use: cluster activity analysis and warning identification.",
     ),
     FunctionTool.from_defaults(
-        fn=execute_oc_get_deployment_events,
-        name="execute_oc_get_deployment_events",
-        description="""Get events specifically related to a deployment.
-
-        Args:
-        - deployment_name (str): Name of the deployment to filter events for
-        - namespace (str): OpenShift namespace containing the deployment
-
-        Returns:
-        - OpenShiftEvents: Contains deployment-specific events (ScalingReplicaSet, FailedCreate, rollbacks)
-
-        Use for: Deployment scaling analysis, rollout troubleshooting, replica set issues
-        """,
+        fn=oc_get_deployment_events,
+        name="oc_get_deployment_events",
+        description="Get events for specific deployment. Args: deployment_name (str), namespace (str). Returns: OpenShiftEvents with deployment-specific events (ScalingReplicaSet, FailedCreate, rollbacks). Use: deployment scaling analysis and rollout troubleshooting.",
     ),
     FunctionTool.from_defaults(
-        fn=execute_oc_get_pod_events,
-        name="execute_oc_get_pod_events",
-        description="""Get events specifically related to a pod.
-
-        Args:
-        - pod_name (str): Pod name (supports partial matching, e.g., "frontend" matches "frontend-abc123")
-        - namespace (str): OpenShift namespace containing the pod
-
-        Returns:
-        - OpenShiftEvents: Contains pod-specific events (Scheduled, Failed, FailedScheduling, Pulled)
-
-        Use for: Pod lifecycle debugging, startup failures, scheduling issues, image pull problems
-        """,
+        fn=oc_get_pod_events,
+        name="oc_get_pod_events",
+        description="Get events for specific pod. Args: pod_name (str) - supports partial matching, namespace (str). Returns: OpenShiftEvents with pod-specific events (Scheduled, Failed, FailedScheduling, Pulled). Use: pod lifecycle debugging and scheduling issues.",
     ),
 ]

@@ -7,44 +7,72 @@ ensuring they return proper model objects with structured data.
 
 import json
 import subprocess
-from unittest.mock import MagicMock, patch
+from typing import Union
+from unittest.mock import patch
 
-# Mock the imports that might not be available in test environment
-with patch.dict(
-    "sys.modules",
-    {
-        "configs": MagicMock(LOG_COLLECTION=MagicMock(), TIMEOUTS=MagicMock()),
-        "agents.remediation.tool_tracker": MagicMock(track_tool_usage=lambda x: x),
-    },
-):
-    from agents.remediation.models import (
-        ErrorType,
-        LogResult,
-        PodListResult,
-        PodSummary,
-        PodDetailedResult,
-        ToolError,
-    )
-    from agents.remediation.pod_tools import (
-        execute_oc_describe_pod,
-        execute_oc_get_pods,
-        execute_oc_logs,
-    )
+from agents.remediation.models import (
+    ErrorType,
+    LogResult,
+    PodListResult,
+    PodDetailedResult,
+    ToolError,
+)
+from agents.remediation.pod_tools import (
+    oc_describe_pod,
+    oc_get_pods,
+    oc_get_logs,
+)
+
+
+def parse_tool_result(
+    json_str: str,
+) -> Union[PodListResult, PodDetailedResult, LogResult, ToolError]:
+    """Parse JSON string result back to ToolResult object for testing."""
+    try:
+        data = json.loads(json_str)
+
+        # Check for ToolError FIRST - it has type, message, and recoverable fields
+        if "type" in data and "message" in data and "recoverable" in data:
+            return ToolError(**data)
+
+        # Then check by tool_name and structure
+        tool_name = data.get("tool_name", "")
+
+        if tool_name == "oc_get_pods" and "pods" in data:
+            return PodListResult(**data)
+        elif tool_name == "oc_describe_pod" and "pod" in data:
+            return PodDetailedResult(**data)
+        elif tool_name == "oc_get_logs" and "entries" in data:
+            return LogResult(**data)
+        else:
+            # Try to determine by structure
+            if "pods" in data:
+                return PodListResult(**data)
+            elif "pod" in data and "containers" in data:
+                return PodDetailedResult(**data)
+            elif "entries" in data and "total_lines" in data:
+                return LogResult(**data)
+            else:
+                raise ValueError(f"Cannot determine ToolResult type from data: {data}")
+
+    except Exception as e:
+        raise ValueError(f"Failed to parse tool result: {e}") from e
 
 
 class TestExecuteOcGetPods:
-    """Test execute_oc_get_pods function"""
+    """Test oc_get_pods function"""
 
     @patch("agents.remediation.pod_tools.run_oc_command")
     def test_get_pods_success(self, mock_run_oc, sample_pods_list_json):
         """Test successful pods retrieval"""
         mock_run_oc.return_value = (0, json.dumps(sample_pods_list_json), "")
 
-        result = execute_oc_get_pods("test-namespace")
+        result_json = oc_get_pods("test-namespace")
+        result = parse_tool_result(result_json)
 
         # Should be PodListResult, not ToolError
         assert isinstance(result, PodListResult)
-        assert result.tool_name == "execute_oc_get_pods"
+        assert result.tool_name == "oc_get_pods"
         assert result.namespace == "test-namespace"
 
         # Check structured data
@@ -71,7 +99,9 @@ class TestExecuteOcGetPods:
         empty_pods = {"apiVersion": "v1", "kind": "PodList", "items": []}
         mock_run_oc.return_value = (0, json.dumps(empty_pods), "")
 
-        result = execute_oc_get_pods("empty-namespace")
+        result_json = oc_get_pods("empty-namespace")
+
+        result = parse_tool_result(result_json)
 
         # Should still be PodListResult, just with empty list
         assert isinstance(result, PodListResult)
@@ -88,7 +118,9 @@ class TestExecuteOcGetPods:
             'Error from server (NotFound): namespaces "missing" not found',
         )
 
-        result = execute_oc_get_pods("missing")
+        result_json = oc_get_pods("missing")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not PodListResult
         assert isinstance(result, ToolError)
@@ -104,7 +136,9 @@ class TestExecuteOcGetPods:
             "Forbidden: User cannot list pods in namespace secure",
         )
 
-        result = execute_oc_get_pods("secure")
+        result_json = oc_get_pods("secure")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not PodListResult
         assert isinstance(result, ToolError)
@@ -116,7 +150,9 @@ class TestExecuteOcGetPods:
         """Test pods retrieval with network error"""
         mock_run_oc.return_value = (1, "", "Unable to connect to server")
 
-        result = execute_oc_get_pods("test-ns")
+        result_json = oc_get_pods("test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not PodListResult
         assert isinstance(result, ToolError)
@@ -130,7 +166,9 @@ class TestExecuteOcGetPods:
             cmd=["oc", "get", "pods"], timeout=30
         )
 
-        result = execute_oc_get_pods("test-ns")
+        result_json = oc_get_pods("test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not PodListResult
         assert isinstance(result, ToolError)
@@ -142,7 +180,9 @@ class TestExecuteOcGetPods:
         """Test pods retrieval with malformed JSON"""
         mock_run_oc.return_value = (0, "invalid json", "")
 
-        result = execute_oc_get_pods("test-ns")
+        result_json = oc_get_pods("test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not PodListResult
         assert isinstance(result, ToolError)
@@ -153,7 +193,9 @@ class TestExecuteOcGetPods:
         """Test pods retrieval with unexpected exception"""
         mock_run_oc.side_effect = Exception("Unexpected error")
 
-        result = execute_oc_get_pods("test-ns")
+        result_json = oc_get_pods("test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not PodListResult
         assert isinstance(result, ToolError)
@@ -161,7 +203,7 @@ class TestExecuteOcGetPods:
 
 
 class TestExecuteOcGetPod:
-    """Test execute_oc_describe_pod function"""
+    """Test oc_describe_pod function"""
 
     @patch("agents.remediation.pod_tools.find_pod_by_name")
     @patch("agents.remediation.pod_tools.run_oc_command")
@@ -222,11 +264,13 @@ class TestExecuteOcGetPod:
 
         mock_run_oc.return_value = (0, json.dumps(enhanced_pod), "")
 
-        result = execute_oc_describe_pod("frontend", "test-namespace")
+        result_json = oc_describe_pod("frontend", "test-namespace")
+
+        result = parse_tool_result(result_json)
 
         # Should be PodDetailedResult, not ToolError
         assert isinstance(result, PodDetailedResult)
-        assert result.tool_name == "execute_oc_describe_pod"
+        assert result.tool_name == "oc_describe_pod"
         assert result.namespace == "test-namespace"
 
         # Check pod details
@@ -259,7 +303,9 @@ class TestExecuteOcGetPod:
         """Test pod retrieval when pod not found"""
         mock_find_pod.return_value = (False, "Pod 'missing' not found")
 
-        result = execute_oc_describe_pod("missing", "test-ns")
+        result_json = oc_describe_pod("missing", "test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not PodDetailedResult
         assert isinstance(result, ToolError)
@@ -273,7 +319,9 @@ class TestExecuteOcGetPod:
         mock_find_pod.return_value = (True, "existing-pod")
         mock_run_oc.return_value = (1, "", "Forbidden: User cannot get pods")
 
-        result = execute_oc_describe_pod("existing-pod", "test-ns")
+        result_json = oc_describe_pod("existing-pod", "test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not PodDetailedResult
         assert isinstance(result, ToolError)
@@ -281,7 +329,7 @@ class TestExecuteOcGetPod:
 
 
 class TestExecuteOcLogs:
-    """Test execute_oc_logs function"""
+    """Test oc_get_logs function"""
 
     @patch("agents.remediation.pod_tools.find_pod_by_name")
     @patch("agents.remediation.pod_tools._get_unfiltered_logs")
@@ -293,11 +341,13 @@ class TestExecuteOcLogs:
             None,
         )
 
-        result = execute_oc_logs("frontend", "test-namespace")
+        result_json = oc_get_logs("frontend", "test-namespace")
+
+        result = parse_tool_result(result_json)
 
         # Should be LogResult, not ToolError
         assert isinstance(result, LogResult)
-        assert result.tool_name == "execute_oc_logs"
+        assert result.tool_name == "oc_get_logs"
         assert result.namespace == "test-namespace"
         assert result.pod_name == "frontend-abc123"
         assert result.total_lines == 2
@@ -316,7 +366,9 @@ class TestExecuteOcLogs:
         mock_find_pod.return_value = (True, "multi-container-pod")
         mock_get_logs.return_value = (["Container log message"], None)
 
-        result = execute_oc_logs("multi-container", "test-ns", container="nginx")
+        result_json = oc_get_logs("multi-container", "test-ns", container="nginx")
+
+        result = parse_tool_result(result_json)
 
         # Should be LogResult, not ToolError
         assert isinstance(result, LogResult)
@@ -330,7 +382,9 @@ class TestExecuteOcLogs:
         mock_find_pod.return_value = (True, "app-pod")
         mock_get_logs.return_value = (["ERROR: Critical failure"], None)
 
-        result = execute_oc_logs("app", "test-ns", pattern="ERROR")
+        result_json = oc_get_logs("app", "test-ns", pattern="ERROR")
+
+        result = parse_tool_result(result_json)
 
         # Should be LogResult, not ToolError
         assert isinstance(result, LogResult)
@@ -344,7 +398,9 @@ class TestExecuteOcLogs:
         mock_find_pod.return_value = (True, "app-pod")
         mock_get_logs.return_value = ([], None)  # No matches found
 
-        result = execute_oc_logs("app", "test-ns", pattern="NOTFOUND")
+        result_json = oc_get_logs("app", "test-ns", pattern="NOTFOUND")
+
+        result = parse_tool_result(result_json)
 
         # Should be LogResult with empty entries, not ToolError
         assert isinstance(result, LogResult)
@@ -356,7 +412,9 @@ class TestExecuteOcLogs:
         """Test log retrieval when pod not found"""
         mock_find_pod.return_value = (False, "Pod not found")
 
-        result = execute_oc_logs("missing-pod", "test-ns")
+        result_json = oc_get_logs("missing-pod", "test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should be ToolError, not LogResult
         assert isinstance(result, ToolError)
@@ -369,7 +427,9 @@ class TestExecuteOcLogs:
         mock_find_pod.return_value = (True, "no-logs-pod")
         mock_get_logs.return_value = ([], None)
 
-        result = execute_oc_logs("no-logs", "test-ns")
+        result_json = oc_get_logs("no-logs", "test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should be LogResult with empty entries, not ToolError
         assert isinstance(result, LogResult)
@@ -384,7 +444,7 @@ class TestExecuteOcLogs:
         mock_get_logs.return_value = (
             [],
             ToolError(
-                tool_name="execute_oc_logs",
+                tool_name="oc_get_logs",
                 type=ErrorType.PERMISSION,
                 message="Permission denied",
                 recoverable=False,
@@ -392,7 +452,9 @@ class TestExecuteOcLogs:
             ),
         )
 
-        result = execute_oc_logs("failing", "test-ns")
+        result_json = oc_get_logs("failing", "test-ns")
+
+        result = parse_tool_result(result_json)
 
         # Should return the ToolError from the helper
         assert isinstance(result, ToolError)
@@ -411,7 +473,9 @@ class TestExecuteOcLogs:
                 cmd=["oc", "logs"], timeout=30
             )
 
-            result = execute_oc_logs("slow", "test-ns")
+            result_json = oc_get_logs("slow", "test-ns")
+
+            result = parse_tool_result(result_json)
 
             # Should be ToolError, not LogResult
             assert isinstance(result, ToolError)
@@ -427,7 +491,9 @@ class TestStructuredDataAccess:
         """Test that pod data can be accessed as structured fields"""
         mock_run_oc.return_value = (0, json.dumps(sample_pods_list_json), "")
 
-        result = execute_oc_get_pods("test-namespace")
+        result_json = oc_get_pods("test-namespace")
+
+        result = parse_tool_result(result_json)
 
         # Test structured field access
         assert isinstance(result, PodListResult)
@@ -473,7 +539,9 @@ class TestPodErrorHandling:
                 stderr = f"Error: {error_msg}"
 
             mock_run_oc.return_value = (1, "", stderr)
-            result = execute_oc_get_pods("test")
+            result_json = oc_get_pods("test")
+
+            result = parse_tool_result(result_json)
 
             assert isinstance(result, ToolError)
             assert result.type == expected_type
@@ -494,7 +562,9 @@ class TestPodErrorHandling:
         }
         mock_run_oc.return_value = (0, json.dumps(minimal_pod_list), "")
 
-        result = execute_oc_get_pods("test")
+        result_json = oc_get_pods("test")
+
+        result = parse_tool_result(result_json)
 
         # Should handle missing fields gracefully
         assert isinstance(result, PodListResult)
@@ -515,11 +585,13 @@ class TestPodToolTrackingAndConfig:
         """Test that pod tools work correctly"""
         mock_run_oc.return_value = (0, '{"items": []}', "")
 
-        result = execute_oc_get_pods("test")
+        result_json = oc_get_pods("test")
+
+        result = parse_tool_result(result_json)
 
         # Should return successful result
         assert isinstance(result, PodListResult)
-        assert result.tool_name == "execute_oc_get_pods"
+        assert result.tool_name == "oc_get_pods"
 
     @patch("agents.remediation.pod_tools.run_oc_command")
     def test_pod_timeout_configuration(self, mock_run_oc):
@@ -527,6 +599,8 @@ class TestPodToolTrackingAndConfig:
         # This mainly tests that the function doesn't crash with timeouts
         mock_run_oc.side_effect = subprocess.TimeoutExpired(cmd=["oc"], timeout=120)
 
-        result = execute_oc_get_pods("test")
+        result_json = oc_get_pods("test")
+
+        result = parse_tool_result(result_json)
         assert isinstance(result, ToolError)
         assert result.type == ErrorType.TIMEOUT

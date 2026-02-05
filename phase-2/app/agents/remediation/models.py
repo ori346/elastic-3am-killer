@@ -34,7 +34,8 @@ class ToolResult(BaseModel):
 
     def __str__(self) -> str:
         """Ultra-compact string representation without any whitespace to reduce LLM tokens."""
-        return self.model_dump_json(exclude_unset=True, exclude_none=True, by_alias=True)
+        return self.model_dump_json(exclude_unset=True, exclude_none=True)
+
 
 class ToolError(ToolResult):
     """Structured error information with recovery guidance"""
@@ -74,7 +75,7 @@ class DeploymentResources(ToolResult):
     """Deployment resource information focused on CPU, memory and replicas"""
 
     tool_name: str = Field(
-        default="execute_oc_get_deployment_resources", description="Name of the tool"
+        default="oc_get_deployment_resources", description="Name of the tool"
     )
     name: str = Field(description="Deployment name")
     ready_replicas: int = Field(0, description="Number of ready replicas")
@@ -107,9 +108,7 @@ class OpenShiftEvent(BaseModel):
 class OpenShiftEvents(ToolResult):
     """Collection of OpenShift events from a namespace or resource"""
 
-    tool_name: str = Field(
-        default="execute_oc_get_events", description="Name of the tool"
-    )
+    tool_name: str = Field(default="oc_get_events", description="Name of the tool")
     events: List[OpenShiftEvent] = Field(
         default_factory=list, description="List of retrieved OpenShift events"
     )
@@ -169,25 +168,21 @@ class PodSummary(BaseModel):
 class DeploymentListResult(ToolResult):
     """Streamlined deployment listing result"""
 
-    tool_name: str = Field(
-        default="execute_oc_get_deployments", description="Name of the tool"
-    )
+    tool_name: str = Field(default="oc_get_deployments", description="Name of the tool")
     deployments: List[DeploymentSummary] = Field(description="List of deployments")
 
 
 class PodListResult(ToolResult):
     """Streamlined pod listing result"""
 
-    tool_name: str = Field(
-        default="execute_oc_get_pods", description="Name of the tool"
-    )
+    tool_name: str = Field(default="oc_get_pods", description="Name of the tool")
     pods: List[PodSummary] = Field(description="List of pods")
 
 
 class LogResult(ToolResult):
     """Streamlined log response"""
 
-    tool_name: str = Field(default="execute_oc_logs", description="Name of the tool")
+    tool_name: str = Field(default="oc_get_logs", description="Name of the tool")
     pod_name: str = Field(description="Pod name")
     total_lines: int = Field(description="Number of log lines")
     entries: List[LogEntry] = Field(default_factory=list, description="Log entries")
@@ -274,9 +269,7 @@ class PodDetail(BaseModel):
 class PodDetailedResult(ToolResult):
     """Detailed pod information for debugging"""
 
-    tool_name: str = Field(
-        default="execute_oc_describe_pod", description="Name of the tool"
-    )
+    tool_name: str = Field(default="oc_describe_pod", description="Name of the tool")
     pod: PodDetail = Field(description="Detailed pod information")
     containers: List[ContainerDetail] = Field(
         default_factory=list, description="Detailed container information"
@@ -287,7 +280,7 @@ class DeploymentDetail(ToolResult):
     """Enhanced deployment information for debugging"""
 
     tool_name: str = Field(
-        default="execute_oc_describe_deployment", description="Name of the tool"
+        default="oc_describe_deployment", description="Name of the tool"
     )
 
     # Basic deployment information

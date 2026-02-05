@@ -13,7 +13,12 @@ from agents.remediation.context_tools import (
     read_alert_diagnostics_data,
     write_remediation_plan,
 )
-from agents.remediation.models import ErrorType, AlertDiagnosticsResult, RemediationPlanResult, ToolError
+from agents.remediation.models import (
+    ErrorType,
+    AlertDiagnosticsResult,
+    RemediationPlanResult,
+    ToolError,
+)
 
 
 class MockEditState:
@@ -177,7 +182,9 @@ class TestWriteRemediationPlan:
             "oc scale deployment crashed-app --replicas=3",
         ]
 
-        result = await write_remediation_plan(mock_context, "Test explanation", commands)
+        result = await write_remediation_plan(
+            mock_context, "Test explanation", commands
+        )
 
         # Should be RemediationPlanResult, not ToolError
         assert isinstance(result, RemediationPlanResult)
@@ -203,13 +210,18 @@ class TestWriteRemediationPlan:
         """Test writing plan with only read-only commands"""
         commands = ["oc get pods", "oc describe deployment"]  # All read-only
 
-        result = await write_remediation_plan(mock_context, "Test explanation", commands)
+        result = await write_remediation_plan(
+            mock_context, "Test explanation", commands
+        )
 
         # Should be ToolError, not RemediationPlanResult
         assert isinstance(result, ToolError)
         assert result.type == ErrorType.SYNTAX
         assert "Read-only commands cannot remediate alerts" in result.message
-        assert "oc get pods" in result.message or "oc describe deployment" in result.message
+        assert (
+            "oc get pods" in result.message
+            or "oc describe deployment" in result.message
+        )
 
     @pytest.mark.asyncio
     async def test_write_plan_mixed_commands(self, mock_context):
@@ -224,7 +236,9 @@ class TestWriteRemediationPlan:
         ]
 
         # The current implementation rejects ANY read-only commands, so this will fail
-        result = await write_remediation_plan(mock_context, "Test explanation", commands)
+        result = await write_remediation_plan(
+            mock_context, "Test explanation", commands
+        )
 
         # Should be ToolError because it contains read-only commands
         assert isinstance(result, ToolError)
@@ -234,15 +248,19 @@ class TestWriteRemediationPlan:
     @pytest.mark.asyncio
     async def test_write_plan_context_exception(self, mock_context):
         """Test writing plan when context throws exception"""
+
         # Override edit_state to raise an exception
         def failing_edit_state():
             raise Exception("Context write error")
+
         mock_context.store.edit_state = failing_edit_state
 
         # Use valid remediation commands
         commands = ["oc scale deployment test --replicas=1"]
 
-        result = await write_remediation_plan(mock_context, "Test explanation", commands)
+        result = await write_remediation_plan(
+            mock_context, "Test explanation", commands
+        )
 
         # Should be ToolError, not RemediationPlanResult
         assert isinstance(result, ToolError)
@@ -264,7 +282,9 @@ class TestWriteRemediationPlan:
             "oc get events",  # read-only
         ]
 
-        result = await write_remediation_plan(mock_context, "Test explanation", commands)
+        result = await write_remediation_plan(
+            mock_context, "Test explanation", commands
+        )
 
         # Should be ToolError because it contains read-only commands
         assert isinstance(result, ToolError)
@@ -283,7 +303,9 @@ class TestWriteRemediationPlan:
             "oc set resources deployment test-app --limits=memory=256Mi",  # Duplicate
         ]
 
-        result = await write_remediation_plan(mock_context, "Test explanation", commands)
+        result = await write_remediation_plan(
+            mock_context, "Test explanation", commands
+        )
 
         # Should be RemediationPlanResult, not ToolError
         assert isinstance(result, RemediationPlanResult)
@@ -302,7 +324,9 @@ class TestContextToolsIntegration:
         mock_context.store.edit_state = AsyncMock(side_effect=Exception("Test error"))
 
         read_result = await read_alert_diagnostics_data(mock_context)
-        write_result = await write_remediation_plan(mock_context, "Test explanation", ["oc scale deployment test --replicas=1"])
+        write_result = await write_remediation_plan(
+            mock_context, "Test explanation", ["oc scale deployment test --replicas=1"]
+        )
 
         # Both should be ToolError with UNKNOWN type
         assert isinstance(read_result, ToolError)
@@ -324,17 +348,19 @@ class TestContextToolsIntegration:
 
         read_result = await read_alert_diagnostics_data(mock_context)
         assert isinstance(read_result, AlertDiagnosticsResult)
-        assert hasattr(read_result, 'alert_diagnostics')
-        assert hasattr(read_result, 'tool_name')
-        assert hasattr(read_result, 'namespace')
+        assert hasattr(read_result, "alert_diagnostics")
+        assert hasattr(read_result, "tool_name")
+        assert hasattr(read_result, "namespace")
 
         # Test write function - mock_context fixture handles edit_state setup
 
-        write_result = await write_remediation_plan(mock_context, "Test explanation", ["oc rollout restart deployment/test"])
+        write_result = await write_remediation_plan(
+            mock_context, "Test explanation", ["oc rollout restart deployment/test"]
+        )
         assert isinstance(write_result, RemediationPlanResult)
-        assert hasattr(write_result, 'plan_written')
-        assert hasattr(write_result, 'next_step')
-        assert hasattr(write_result, 'tool_name')
+        assert hasattr(write_result, "plan_written")
+        assert hasattr(write_result, "next_step")
+        assert hasattr(write_result, "tool_name")
 
 
 class TestReadOnlyCommandsConstant:

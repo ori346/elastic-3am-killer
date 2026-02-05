@@ -21,7 +21,7 @@ class AgentLLMConfig:
     model: str
     max_tokens: int
     temperature: float
-    system_prompt: str
+    context_window: int
     default_headers: Optional[dict] = None
 
     def __post_init__(self):
@@ -30,7 +30,7 @@ class AgentLLMConfig:
             self.default_headers = {"Content-Type": "application/json"}
 
 
-def get_agent_api_config(agent_prefix: str) -> tuple[str, str, str]:
+def get_agent_api_config(agent_prefix: str) -> tuple[str, str, str, int]:
     """
     Get API configuration for a specific agent with fallback to shared variables.
 
@@ -38,21 +38,26 @@ def get_agent_api_config(agent_prefix: str) -> tuple[str, str, str]:
         agent_prefix: Agent prefix (e.g., "WORKFLOW_COORDINATOR", "ALERT_REMEDIATION_SPECIALIST", "INCIDENT_REPORT_GENERATOR")
 
     Returns:
-        Tuple of (api_base, api_key, model)
+        Tuple of (api_base, api_key, model, context_window)
     """
     api_base = os.getenv(f"{agent_prefix}_API_BASE", os.getenv("API_BASE"))
     api_key = os.getenv(f"{agent_prefix}_API_KEY", os.getenv("API_KEY"))
     model = os.getenv(f"{agent_prefix}_MODEL", os.getenv("MODEL"))
 
-    return api_base, api_key, model
+    # Get context window with fallback to default (8192)
+    context_window = int(
+        os.getenv(f"{agent_prefix}_CONTEXT_WINDOW", os.getenv("CONTEXT_WINDOW", "8192"))
+    )
+
+    return api_base, api_key, model, context_window
 
 
 def create_agent_llm(
     agent_prefix: str,
     max_tokens: int,
     temperature: float,
-    system_prompt: str | None = None,
     default_headers: dict = {"Content-Type": "application/json"},
+    context_window: Optional[int] = None,
 ) -> OpenAILike:
     """
     Create an OpenAI-like LLM instance for an agent.
@@ -61,13 +66,18 @@ def create_agent_llm(
         agent_prefix: Agent prefix for environment variables (e.g., "WORKFLOW_COORDINATOR")
         max_tokens: Maximum tokens for the agent
         temperature: Temperature for the agent
-        system_prompt: System prompt for the agent
         default_headers: Optional default headers (uses default if None)
+        context_window: Optional context window override (uses env config if None)
 
     Returns:
         Configured OpenAILike instance
     """
-    api_base, api_key, model = get_agent_api_config(agent_prefix)
+    api_base, api_key, model, env_context_window = get_agent_api_config(agent_prefix)
+
+    # Use provided context_window or fallback to environment configuration
+    final_context_window = (
+        context_window if context_window is not None else env_context_window
+    )
 
     return OpenAILike(
         api_base=api_base,
@@ -77,79 +87,73 @@ def create_agent_llm(
         max_tokens=max_tokens,
         temperature=temperature,
         default_headers=default_headers,
-        system_prompt=system_prompt,
+        context_window=final_context_window,
     )
 
 
-def create_workflow_coordinator_llm(max_tokens: int, temperature: float) -> OpenAILike:
+def create_workflow_coordinator_llm(
+    max_tokens: int, temperature: float, context_window: Optional[int] = None
+) -> OpenAILike:
     """
-    Create LLM for Workflow Coordinator with predefined system prompt.
+    Create LLM for Workflow Coordinator.
 
     Args:
         max_tokens: Maximum tokens for the agent
         temperature: Temperature for the agent
+        context_window: Optional context window override (uses env config if None)
 
     Returns:
         Configured OpenAILike instance for Workflow Coordinator
     """
-    system_prompt = (
-        "You are helping the AI Orchestrator Agent to remediate alerts in OpenShift cluster. "
-        "The agent is not allowed to execute commands that do not modify the cluster state such as get, describe, status, logs, etc. "
-        "The agent's role is only orchestrating the workflow and not investigating by itself. The agent uses other agents for investigation."
-    )
 
     return create_agent_llm(
         agent_prefix="WORKFLOW_COORDINATOR",
         max_tokens=max_tokens,
         temperature=temperature,
-        system_prompt=system_prompt,
+        context_window=context_window,
     )
 
 
 def create_alert_remediation_specialist_llm(
-    max_tokens: int, temperature: float
+    max_tokens: int, temperature: float, context_window: Optional[int] = None
 ) -> OpenAILike:
     """
-    Create LLM for Alert Remediation Specialist with predefined system prompt.
+    Create LLM for Alert Remediation Specialist.
 
     Args:
         max_tokens: Maximum tokens for the agent
         temperature: Temperature for the agent
+        context_window: Optional context window override (uses env config if None)
 
     Returns:
         Configured OpenAILike instance for Alert Remediation Specialist
     """
-    system_prompt = (
-        "You are helping the AI Remediate Agent to remediate alerts in OpenShift cluster. "
-        "The agent is not allowed to execute commands that modify the cluster state such as set, rollout, create, apply, edit, delete, expose, etc. "
-        "The agent's role is to create commands that will resolve the alert in the cluster and handoff these commands back to Workflow Coordinator agent."
-    )
 
     return create_agent_llm(
         agent_prefix="ALERT_REMEDIATION_SPECIALIST",
         max_tokens=max_tokens,
         temperature=temperature,
-        system_prompt=system_prompt,
+        context_window=context_window,
     )
 
 
 def create_incident_report_generator_llm(
-    max_tokens: int, temperature: float
+    max_tokens: int, temperature: float, context_window: Optional[int] = None
 ) -> OpenAILike:
     """
-    Create LLM for Incident Report Generator (no system prompt needed as it's set in ReActAgent).
+    Create LLM for Incident Report Generator.
 
     Args:
         max_tokens: Maximum tokens for the agent
         temperature: Temperature for the agent
+        context_window: Optional context window override (uses env config if None)
 
     Returns:
         Configured OpenAILike instance for Incident Report Generator
     """
-    # Incident Report Generator doesn't use system_prompt in LLM config
-    # The system prompt is handled by the ReActAgent itself
     return create_agent_llm(
         agent_prefix="INCIDENT_REPORT_GENERATOR",
         max_tokens=max_tokens,
         temperature=temperature,
+        context_window=context_window,
     )

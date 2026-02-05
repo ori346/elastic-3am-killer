@@ -150,52 +150,11 @@ context_tools = [
     FunctionTool.from_defaults(
         fn=read_alert_diagnostics_data,
         name="read_alert_diagnostics_data",
-        description="""Read alert information from shared context.
-
-        Args: None - reads from context
-
-        Returns:
-        - AlertDiagnosticsResult with alert_diagnostics dict containing:
-          - namespace: The namespace where the alert originated
-          - alert_name: The name of the alert
-          - alert_diagnostics: Diagnostic text describing the alert
-          - alert_status: Current status of the alert
-          - recommendation: Diagnose agent recommendations
-
-        Use for: Understanding the alert before starting investigation
-        """,
+        description="Read alert diagnostics from shared context. Returns: AlertDiagnosticsResult with namespace, alert_name, diagnostics, status, recommendation. Use: understand alert before investigation.",
     ),
     FunctionTool.from_defaults(
         fn=write_remediation_plan,
         name="write_remediation_plan",
-        description="""Write remediation plan with validated commands to shared context.
-
-        Args:
-        - explanation (str): Brief explanation of the issue and why the commands will fix it
-        - commands (list[str]): List of EXECUTABLE oc commands (NOT descriptions)
-
-        Returns:
-        - RemediationPlanResult with plan_written status and next_step instructions
-
-        Rules:
-        - Commands MUST be executable shell commands, NOT descriptions
-        - Use format: oc set resources deployment <name> -n <namespace> --limits=cpu=X,memory=Y
-        - After calling this tool, MUST handoff to Workflow Coordinator
-
-        CORRECT EXAMPLE:
-        write_remediation_plan(
-            explanation="Frontend has 128Mi memory causing OOMKilled. Increasing to 512Mi.",
-            commands=[
-                "oc set resources deployment frontend -n awesome-app --limits=cpu=500m,memory=512Mi --requests=cpu=250m,memory=256Mi"
-            ]
-        )
-
-        WRONG EXAMPLES:
-        ❌ commands=["Increase CPU and memory"]  # Not a command
-        ❌ commands=["oc set resources --limits=cpu=1000m --limits=memory=512Mi"]  # Duplicate flags
-        ❌ commands=["oc set resources deployment frontend --limits=cpu=500m"]  # Missing namespace
-
-        Use for: Storing remediation commands for execution by Workflow Coordinator
-        """,
+        description="Store validated remediation commands in shared context. Args: explanation (str) - issue description, commands (list[str]) - executable oc commands only. Returns: RemediationPlanResult with status. Use: handoff executable commands to Workflow Coordinator.",
     ),
 ]

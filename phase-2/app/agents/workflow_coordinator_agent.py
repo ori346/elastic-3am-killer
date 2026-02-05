@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 
 from configs import TIMEOUTS, WORKFLOW_COORDINATOR_LLM, create_workflow_coordinator_llm
@@ -25,7 +26,7 @@ async def execute_commands(ctx: Context) -> str:
 
     for cmd in commands:
         returncode = subprocess.run(
-            cmd.split(), capture_output=False, timeout=TIMEOUTS.command_execution
+            shlex.split(cmd), capture_output=False, timeout=TIMEOUTS.command_execution
         ).returncode
         status = "Success" if returncode == 0 else "Failed"
         if returncode != 0:

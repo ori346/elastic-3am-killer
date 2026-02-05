@@ -346,7 +346,7 @@ class TestIntegrationErrorHandling:
         result = create_tool_error(
             error_type=error_type,
             message=f"Pod operation failed: {stderr}",
-            tool_name="execute_oc_describe_pod",
+            tool_name="oc_describe_pod",
             raw_output=stderr,
             namespace="test-namespace",
         )
@@ -355,7 +355,7 @@ class TestIntegrationErrorHandling:
         assert isinstance(result, ToolError)
         assert result.type == ErrorType.NOT_FOUND
         assert "missing-pod" in result.message
-        assert result.tool_name == "execute_oc_describe_pod"
+        assert result.tool_name == "oc_describe_pod"
         assert result.recoverable is False
         assert result.suggestion != ""
         assert stderr in result.raw_output
@@ -373,7 +373,7 @@ class TestIntegrationErrorHandling:
         result = create_tool_error(
             error_type=error_type,
             message="Network operation timed out",
-            tool_name="execute_oc_get_pods",
+            tool_name="oc_get_pods",
             recoverable=True,  # Explicitly set as recoverable
             namespace="production",
         )
@@ -393,10 +393,10 @@ class TestIntegrationErrorHandling:
 
         # Test that same error creates consistent results for different tools
         tools = [
-            "execute_oc_get_pods",
-            "execute_oc_get_deployments",
-            "execute_oc_describe_pod",
-            "execute_oc_logs",
+            "oc_get_pods",
+            "oc_get_deployments",
+            "oc_describe_pod",
+            "oc_get_logs",
         ]
 
         for tool_name in tools:

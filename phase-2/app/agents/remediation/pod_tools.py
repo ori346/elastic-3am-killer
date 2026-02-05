@@ -151,7 +151,7 @@ def _get_filtered_logs(
         error_result = _handle_oc_command_error(
             result.returncode,
             result.stderr,
-            "execute_oc_logs",
+            "oc_get_logs",
             "get filtered logs",
             namespace,
         )
@@ -183,7 +183,7 @@ def _get_unfiltered_logs(
 
     if result.returncode != 0:
         error_result = _handle_oc_command_error(
-            result.returncode, result.stderr, "execute_oc_logs", "get logs", namespace
+            result.returncode, result.stderr, "oc_get_logs", "get logs", namespace
         )
         return [], error_result
     else:
@@ -284,7 +284,7 @@ def _extract_owner_references(pod_metadata: dict) -> list[dict]:
 
 
 @track_tool_usage
-def execute_oc_get_pods(namespace: str) -> ToolResult:
+def oc_get_pods(namespace: str) -> ToolResult:
     """
     List pods in namespace with basic status (name, phase, ready count, restarts).
 
@@ -303,7 +303,7 @@ def execute_oc_get_pods(namespace: str) -> ToolResult:
             return _handle_oc_command_error(
                 returncode,
                 stderr,
-                "execute_oc_get_pods",
+                "oc_get_pods",
                 f"get pods in namespace '{namespace}'",
                 namespace,
             )
@@ -348,18 +348,18 @@ def execute_oc_get_pods(namespace: str) -> ToolResult:
             )
 
         except json.JSONDecodeError as e:
-            return _handle_json_parse_error(e, "execute_oc_get_pods", stdout, namespace)
+            return _handle_json_parse_error(e, "oc_get_pods", stdout, namespace)
 
     except subprocess.TimeoutExpired:
-        return _handle_timeout_error("execute_oc_get_pods", "getting pods", namespace)
+        return _handle_timeout_error("oc_get_pods", "getting pods", namespace)
     except Exception as e:
         return _handle_generic_error(
-            e, "execute_oc_get_pods", "executing oc get pods", namespace
+            e, "oc_get_pods", "executing oc get pods", namespace
         )
 
 
 @track_tool_usage
-def execute_oc_describe_pod(pod_name: str, namespace: str) -> ToolResult:
+def oc_describe_pod(pod_name: str, namespace: str) -> ToolResult:
     """
     Get detailed pod information for debugging purposes. Supports partial names.
 
@@ -376,7 +376,7 @@ def execute_oc_describe_pod(pod_name: str, namespace: str) -> ToolResult:
         success, actual_pod_name = find_pod_by_name(pod_name, namespace)
         if not success:
             return _handle_not_found_error(
-                "execute_oc_describe_pod",
+                "oc_describe_pod",
                 f"Pod '{pod_name}' not found in namespace '{namespace}': {actual_pod_name}",
                 namespace,
             )
@@ -390,7 +390,7 @@ def execute_oc_describe_pod(pod_name: str, namespace: str) -> ToolResult:
             return _handle_oc_command_error(
                 returncode,
                 stderr,
-                "execute_oc_describe_pod",
+                "oc_describe_pod",
                 f"get pod '{actual_pod_name}'",
                 namespace,
             )
@@ -438,22 +438,18 @@ def execute_oc_describe_pod(pod_name: str, namespace: str) -> ToolResult:
             )
 
         except json.JSONDecodeError as e:
-            return _handle_json_parse_error(
-                e, "execute_oc_describe_pod", stdout, namespace
-            )
+            return _handle_json_parse_error(e, "oc_describe_pod", stdout, namespace)
 
     except subprocess.TimeoutExpired:
-        return _handle_timeout_error(
-            "execute_oc_describe_pod", f"pod '{pod_name}'", namespace
-        )
+        return _handle_timeout_error("oc_describe_pod", f"pod '{pod_name}'", namespace)
     except Exception as e:
         return _handle_generic_error(
-            e, "execute_oc_describe_pod", f"getting pod '{pod_name}'", namespace
+            e, "oc_describe_pod", f"getting pod '{pod_name}'", namespace
         )
 
 
 @track_tool_usage
-def execute_oc_logs(
+def oc_get_logs(
     pod_name: str, namespace: str, container: str = "", pattern: str = ""
 ) -> ToolResult:
     """
@@ -474,7 +470,7 @@ def execute_oc_logs(
         success, actual_pod_name = find_pod_by_name(pod_name, namespace)
         if not success:
             return _handle_not_found_error(
-                "execute_oc_logs",
+                "oc_get_logs",
                 f"Pod for logs not found: {actual_pod_name}",
                 namespace,
             )
@@ -514,64 +510,29 @@ def execute_oc_logs(
 
     except subprocess.TimeoutExpired:
         return _handle_timeout_error(
-            "execute_oc_logs", f"logs for pod '{pod_name}'", namespace
+            "oc_get_logs", f"logs for pod '{pod_name}'", namespace
         )
     except Exception as e:
         return _handle_generic_error(
-            e, "execute_oc_logs", f"getting logs for pod '{pod_name}'", namespace
+            e, "oc_get_logs", f"getting logs for pod '{pod_name}'", namespace
         )
 
 
 # Tool definitions for LlamaIndex
 pod_tools = [
     FunctionTool.from_defaults(
-        fn=execute_oc_get_pods,
-        name="execute_oc_get_pods",
-        description="""List all pods in a namespace with basic status information.
-
-        Args:
-        - namespace (str): OpenShift namespace to query
-
-        Returns:
-        - PodsInNamespace: Contains list of PodInfo objects with name, status, ready count, restarts, age
-
-        Use for: Pod health overview, identifying failing pods, namespace-wide pod status check
-        """,
+        fn=oc_get_pods,
+        name="oc_get_pods",
+        description="List pods in namespace with basic status. Args: namespace (str) - target namespace. Returns: PodsInNamespace with pod summaries. Use: health overview and failing pod identification.",
     ),
     FunctionTool.from_defaults(
-        fn=execute_oc_describe_pod,
-        name="execute_oc_describe_pod",
-        description="""Get comprehensive detailed information about a specific pod for debugging.
-
-        Args:
-        - pod_name (str): Pod name (supports partial matching, e.g., "frontend" matches "frontend-abc123")
-        - namespace (str): OpenShift namespace containing the pod
-
-        Returns:
-        - PodDetailedResult: Contains detailed pod information including:
-          * Pod: networking (IPs), labels, annotations, security context, owner references
-          * Containers: resource limits/requests, liveness/readiness probes, exit codes,
-            termination reasons, ports, environment variables
-
-        Use for: Advanced debugging of pod failures, resource issues, probe failures,
-        networking problems, container crashes, and security context troubleshooting
-        """,
+        fn=oc_describe_pod,
+        name="oc_describe_pod",
+        description="Get detailed pod info for debugging. Args: pod_name (str) - supports partial matching, namespace (str). Returns: PodDetailedResult with networking, security, containers, resources, probes. Use: pod failure debugging.",
     ),
     FunctionTool.from_defaults(
-        fn=execute_oc_logs,
-        name="execute_oc_logs",
-        description="""Get pod logs with optional filtering.
-
-        Args:
-        - pod_name (str): Pod name (supports partial matching, e.g., "api" matches "api-server-abc123")
-        - namespace (str): OpenShift namespace containing the pod
-        - container (str, optional): Specific container name to get logs from
-        - pattern (str, optional): Text pattern to filter logs (e.g., "ERROR", "exception")
-
-        Returns:
-        - LogResult: Contains structured log entries with level detection (ERROR, WARN, INFO, DEBUG)
-
-        Use for: Application debugging, error analysis, log pattern search, troubleshooting startup issues
-        """,
+        fn=oc_get_logs,
+        name="oc_get_logs",
+        description="Get pod logs with optional filtering. Args: pod_name (str) - supports partial matching, namespace (str), container (str) - optional, pattern (str) - optional filter. Returns: LogResult with structured log entries. Use: debugging and error analysis.",
     ),
 ]

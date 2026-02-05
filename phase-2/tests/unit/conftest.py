@@ -217,8 +217,6 @@ def sample_events_json():
 # ===== Model Instance Fixtures =====
 
 
-
-
 @pytest.fixture
 def sample_deployment_condition():
     """Sample DeploymentCondition instance"""
@@ -270,7 +268,7 @@ def sample_pod_info():
 def sample_log_response():
     """Sample LogResult instance for legacy tests"""
     return LogResult(
-        tool_name="execute_oc_logs",
+        tool_name="oc_get_logs",
         namespace="test",
         pod_name="test-pod",
         total_lines=3,
@@ -327,6 +325,7 @@ def mock_context():
     # Mock store with edit_state method that returns an async context manager
     def edit_state_func():
         return MockEditState()
+
     mock.store.edit_state = edit_state_func
 
     return mock

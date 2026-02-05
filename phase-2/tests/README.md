@@ -40,14 +40,14 @@ tests/
 - Text parsing and formatting functions
 
 ### 4. **Pod Tools** (`test_pod_tools.py`)
-- `execute_oc_get_pods`, `execute_oc_describe_pod`, `execute_oc_describe_pod`
-- `execute_oc_get_events`, `execute_oc_logs`
+- `oc_get_pods`, `oc_describe_pod`, `oc_describe_pod`
+- `oc_get_events`, `oc_get_logs`
 - Structured data conversion from JSON to Pydantic models
 - Error handling for various failure scenarios
 
 ### 5. **Deployment Tools** (`test_deployment_tools.py`)
-- `execute_oc_get_deployments`, `execute_oc_get_deployment_resources`
-- `execute_oc_describe_deployment`
+- `oc_get_deployments`, `oc_get_deployment_resources`
+- `oc_describe_deployment`
 - Deployment condition analysis and structured field access
 
 ### 6. **Context Tools** (`test_context_tools.py`)
@@ -131,7 +131,7 @@ The `conftest.py` file provides comprehensive fixtures for testing:
 def test_get_pods_success(self, mock_run_oc, sample_pods_list_json):
     mock_run_oc.return_value = (0, json.dumps(sample_pods_list_json), "")
 
-    result = execute_oc_get_pods("test-namespace")
+    result = oc_get_pods("test-namespace")
 
     assert result.success is True
     assert isinstance(result.data, list)
@@ -145,7 +145,7 @@ def test_get_pods_success(self, mock_run_oc, sample_pods_list_json):
 def test_get_pods_not_found(self, mock_run_oc):
     mock_run_oc.return_value = (1, "", "namespace not found")
 
-    result = execute_oc_get_pods("missing-namespace")
+    result = oc_get_pods("missing-namespace")
 
     assert result.success is False
     assert result.error.type == ErrorType.NOT_FOUND
