@@ -1,0 +1,81 @@
+from typing import Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+
+class AgentReport(BaseModel):
+    """Model for individual agent reports."""
+
+    diagnosis: str = Field(description="Summary of the incident diagnosis", default="")
+    summary: str = Field(
+        description="Brief summary of the remediation procsess", default=""
+    )
+    alert_name: str = Field(description="Name of the alert", default="")
+    recommendations: str = Field(
+        description="Recommendations to prevent future incidents or invisigation",
+        default="",
+    )
+
+
+class Report(AgentReport):
+    """Model for the final incident report."""
+
+    incident_id: str = Field(
+        description="Unique identifier for the incident", default=""
+    )
+    commands_executed: List[List[str]] = Field(
+        description="List of remediation commands that were executed with their status. Each entry is [command, status]",
+        default_factory=list,
+    )
+    message_type: str = Field(
+        description="Type of the message", default="remediation_report"
+    )
+
+
+class AlertInfo(BaseModel):
+    """Model for alert information."""
+
+    name: str = Field(description="Name of the alert", default="")
+    severity: str = Field(description="Severity level of the alert", default="")
+    service: str = Field(description="Affected service", default="")
+    description: str = Field(
+        description="Detailed description of the alert", default=""
+    )
+
+
+class RemediationRequest(BaseModel):
+    """Model for remediation request input."""
+
+    incident_id: str = Field(
+        description="Unique identifier for the incident", default=""
+    )
+    namespace: str = Field(description="OpenShift namespace of the alert", default="")
+    alert: AlertInfo = Field(description="Alert information", default=AlertInfo())
+    diagnostics_suggestions: str = Field(
+        description="Diagnostic information and suggestions", default=""
+    )
+    logs: List[str] = Field(description="Relevant log entries", default_factory=list)
+    remediation_reports: Optional[List[Dict[str, str | list]]] = Field(
+        description="Previous remediation attempts", default=None
+    )
+
+
+class WorkflowState(BaseModel):
+    """State model for the workflow execution."""
+
+    request: RemediationRequest = Field(
+        description="Structured remediation request data"
+    )
+    report: Report = Field(
+        description="Generated incident report", default_factory=Report
+    )
+    remediation_plan: dict[str, str | list[str]] = Field(
+        description="Remediation plan created by Alert Remediation Specialist",
+        default_factory=dict,
+    )
+    commands_execution_results: List[List[str]] = Field(
+        description="Results of executed commands", default_factory=list
+    )
+    execution_success: bool = Field(
+        description="Overall success status of command execution", default=False
+    )

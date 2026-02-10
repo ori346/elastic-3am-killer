@@ -8,6 +8,7 @@ to shared context for coordination between agents.
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
 
+from ..models import RemediationRequest, WorkflowState
 from .models import AlertDiagnosticsResult, RemediationPlanResult, ToolResult
 from .tool_tracker import reset_tool_usage_counter
 from .utils import ErrorType, create_error_result
@@ -30,8 +31,8 @@ async def read_alert_diagnostics_data(ctx: Context) -> AlertDiagnosticsResult:
     Returns:
         AlertDiagnosticsResult with alert diagnostics dict on success
     """
-    state = await ctx.store.get("state")
-    request_data = state.request
+    state: WorkflowState = await ctx.store.get("state")
+    request_data: RemediationRequest = state.request
 
     if not request_data:
         return create_error_result(

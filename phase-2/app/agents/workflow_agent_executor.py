@@ -6,13 +6,11 @@ command execution decisions, and report generation.
 """
 
 import logging
-from typing import Dict, List, Optional
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import DataPart, Message, TextPart
-from configs import WORKFLOW
 from llama_index.core.agent.workflow import (
     AgentOutput,
     AgentWorkflow,
@@ -20,65 +18,15 @@ from llama_index.core.agent.workflow import (
     ToolCallResult,
 )
 from llama_index.core.workflow import Context
-from pydantic import BaseModel, Field
+
+from configs import WORKFLOW
 
 from .alert_remediation_specialist_agent import agent as alert_remediation_specialist
 from .incident_report_generator_agent import agent as report_generator_agent
+from .models import RemediationRequest, Report, WorkflowState
 from .workflow_coordinator_agent import agent as workflow_coordinator
 
 logger = logging.getLogger(__name__)
-
-
-class AlertInfo(BaseModel):
-    """Model for alert information."""
-
-    name: str = Field(description="Name of the alert", default="")
-    severity: str = Field(description="Severity level of the alert", default="")
-    service: str = Field(description="Affected service", default="")
-    description: str = Field(
-        description="Detailed description of the alert", default=""
-    )
-
-
-class RemediationRequest(BaseModel):
-    """Model for remediation request input."""
-
-    incident_id: str = Field(
-        description="Unique identifier for the incident", default=""
-    )
-    namespace: str = Field(description="OpenShift namespace of the alert", default="")
-    alert: AlertInfo = Field(description="Alert information", default=AlertInfo())
-    diagnostics_suggestions: str = Field(
-        description="Diagnostic information and suggestions", default=""
-    )
-    logs: List[str] = Field(description="Relevant log entries", default_factory=list)
-    remediation_reports: Optional[List[Dict[str, str]]] = Field(
-        description="Previous remediation attempts", default=None
-    )
-
-    def __str__(self):
-        return self.model_dump_json(exclude_unset=True, exclude_none=True)
-
-
-class WorkflowState(BaseModel):
-    """State model for the workflow execution."""
-
-    request: RemediationRequest = Field(
-        description="Structured remediation request data"
-    )
-    report: dict[str, str] = Field(
-        description="Generated incident report", default_factory=dict
-    )
-    remediation_plan: dict[str, str] = Field(
-        description="Remediation plan created by Alert Remediation Specialist",
-        default_factory=dict,
-    )
-    commands_execution_results: List[List[str]] = Field(
-        description="Results of executed commands", default_factory=list
-    )
-    execution_success: bool = Field(
-        description="Overall success status of command execution", default=False
-    )
 
 
 class WorkflowAgentExecutor(AgentExecutor):
@@ -106,7 +54,7 @@ class WorkflowAgentExecutor(AgentExecutor):
 
     async def _execute_workflow_with_streaming(
         self, prompt: str, ctx: Context, agent: AgentWorkflow
-    ) -> dict:
+    ) -> WorkflowState:
         """Execute a single workflow attempt with event streaming and return final state.
         This method does not handle retries - it performs one execution attempt only."""
         logger.info("Running ReActAgent autonomous workflow...")
@@ -119,7 +67,7 @@ class WorkflowAgentExecutor(AgentExecutor):
 
         logger.info("Agent workflow completed autonomously")
 
-        state = await ctx.store.get("state")
+        state: WorkflowState = await ctx.store.get("state")
         return state
 
     async def _process_workflow_event(self, event, current_agent: str) -> str:
@@ -151,10 +99,12 @@ class WorkflowAgentExecutor(AgentExecutor):
         return current_agent
 
     async def _handle_execution_success(
-        self, report: dict, event_queue: EventQueue, updater: TaskUpdater
+        self, report: Report, event_queue: EventQueue, updater: TaskUpdater
     ) -> None:
         """Handle successful workflow completion by sending report and marking task complete."""
-        response_message = updater.new_agent_message(parts=[DataPart(data=report)])
+        response_message = updater.new_agent_message(
+            parts=[DataPart(data=report.model_dump())]
+        )
         await event_queue.enqueue_event(response_message)
         await updater.complete()
         logger.info("Task execution completed successfully")
@@ -210,7 +160,7 @@ class WorkflowAgentExecutor(AgentExecutor):
             state = await self._execute_workflow_with_streaming(
                 prompt, ctx=ctx, agent=agent
             )
-            report = state.report
+            report: Report = state.report
 
             if report:
                 await self._handle_execution_success(report, event_queue, updater)

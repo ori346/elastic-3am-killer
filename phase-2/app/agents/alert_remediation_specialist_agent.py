@@ -11,11 +11,12 @@ This file now uses a modular structure with tools organized by category:
 - Utils: shared utilities for oc command execution
 """
 
+from llama_index.core.agent import ReActAgent
+
 from configs import (
     ALERT_REMEDIATION_SPECIALIST_LLM,
     create_alert_remediation_specialist_llm,
 )
-from llama_index.core.agent import ReActAgent
 
 from .remediation import MAX_TOOLS, all_tools
 
@@ -85,4 +86,5 @@ agent = ReActAgent(
     llm=llm,
     system_prompt=system_prompt,
     can_handoff_to=["Workflow Coordinator"],
+    early_stopping_method='generate'
 )

@@ -1,10 +1,11 @@
 import shlex
 import subprocess
 
-from configs import TIMEOUTS, WORKFLOW_COORDINATOR_LLM, create_workflow_coordinator_llm
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
+
+from configs import TIMEOUTS, WORKFLOW_COORDINATOR_LLM, create_workflow_coordinator_llm
 
 # LLM Configuration - using shared configuration
 llm = create_workflow_coordinator_llm(

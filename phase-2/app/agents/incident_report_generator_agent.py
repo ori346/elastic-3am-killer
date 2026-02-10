@@ -1,11 +1,15 @@
-import json
+import logging
 from typing import Optional
 
-from configs import INCIDENT_REPORT_GENERATOR_LLM, create_incident_report_generator_llm
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
 
+from configs import INCIDENT_REPORT_GENERATOR_LLM, create_incident_report_generator_llm
+
+from .models import AgentReport, Report
+
+logger = logging.getLogger(__name__)
 # LLM Configuration - using shared configuration
 llm = create_incident_report_generator_llm(
     max_tokens=INCIDENT_REPORT_GENERATOR_LLM.max_tokens,
@@ -20,13 +24,13 @@ async def _get_or_build_context_doc(ctx: Context) -> str:
     """Get cached context document or build it if not cached."""
     global _context_cache
 
-    if _context_cache is not None:
-        return _context_cache
+    if not _context_cache:
+        state = await ctx.store.get("state")
+        _context_cache = state.model_dump_json(
+            exclude_unset=True, exclude_none=True, indent=2
+        )
 
-    state = await ctx.store.get("state")
-
-    # Build comprehensive context document with compact JSON to minimize token usage
-    return state.model_dump_json(exclude_unset=True, exclude_none=True, indent=2)
+    return _context_cache
 
 
 async def query_context(ctx: Context, query: str) -> str:
@@ -67,7 +71,7 @@ Answer:"""
 
 
 def _validate_report_fields(
-    summary: str, root_cause: str, remediation_steps: str, recommendations: str
+    summary: str, diagnosis: str, recommendations: str
 ) -> Optional[str]:
     """Validate that all required report fields are provided.
 
@@ -77,10 +81,8 @@ def _validate_report_fields(
     missing_fields = []
     if not summary or summary is None:
         missing_fields.append("summary")
-    if not root_cause or root_cause is None:
-        missing_fields.append("root_cause")
-    if not remediation_steps or remediation_steps is None:
-        missing_fields.append("remediation_steps")
+    if not diagnosis or diagnosis is None:
+        missing_fields.append("diagnosis")
     if not recommendations or recommendations is None:
         missing_fields.append("recommendations")
 
@@ -93,8 +95,7 @@ def _validate_report_fields(
 async def write_report_to_context(
     ctx: Context,
     summary: str,
-    root_cause: str,
-    remediation_steps: str,
+    diagnosis: str,
     recommendations: str,
 ) -> str:
     """Write the generated report to shared context.
@@ -112,9 +113,8 @@ async def write_report_to_context(
         Confirmation message and handoff instruction
     """
     # Validate all required fields are provided
-    validation_error = _validate_report_fields(
-        summary, root_cause, remediation_steps, recommendations
-    )
+    validation_error = _validate_report_fields(summary, diagnosis, recommendations)
+
     if validation_error:
         return validation_error
 
@@ -123,19 +123,21 @@ async def write_report_to_context(
     commands_executed = state.commands_execution_results
 
     # Build complete report
-    report = {
-        "summary": summary,
-        "root_cause": root_cause,
-        "commands_executed": commands_executed,
-        "remediation_steps": remediation_steps,
-        "recommendations": recommendations,
-    }
+    report = Report(
+        incident_id=state.request.incident_id,
+        alert_name=state.request.alert.name,
+        diagnosis=diagnosis,
+        summary=summary,
+        recommendations=recommendations,
+        commands_executed=commands_executed,
+    )
 
     # Store report in context
     async with ctx.store.edit_state() as ctx_state:
         ctx_state["state"].report = report
 
-    return f"Report stored successfully: {json.dumps(report, indent=2)}. YOU MUST NOW HANDOFF TO 'Workflow Coordinator'."
+    logger.info(f"Report written to context: {report.model_dump_json(indent=2)}")
+    return "Report stored successfully. YOU MUST NOW HANDOFF TO 'Workflow Coordinator'."
 
 
 tools = [
@@ -173,29 +175,24 @@ tools = [
     ),
 ]
 
-system_prompt = """You are a report generation specialist with intelligent context querying.
+system_prompt = f"""You are a report generation specialist with intelligent context querying.
 
 YOUR TASK:
 Generate a remediation report by gathering information from context and calling write_report_to_context.
 
-The final report will automatically include these fields:
-- summary: Brief summary (2-3 sentences) of incident and remediation
-- root_cause: Root cause of the issue
-- commands_executed: List of [command, status] pairs (automatically extracted from context)
-- remediation_steps: Description of remediation steps taken
-- recommendations: Recommendations to prevent recurrence
+The final report MUST include these fields:
+{AgentReport.model_fields}
 
 YOUR TOOLS:
 
 1. query_context - For fields needing ANALYSIS/SYNTHESIS:
    Use natural language queries to get interpreted information:
    - summary: query_context("Provide a 2-3 sentence summary of the incident and how it was remediated")
-   - root_cause: query_context("What was the root cause of this issue?")
-   - remediation_steps: query_context("What steps were taken to remediate the problem?")
-   - recommendations: query_context("What recommendations would prevent this issue from recurring?")
+   - diagnosis: query_context("What was the root cause of this issue?")
+   - recommendations: query_context("What recommendations would prevent this issue from recurring? or What should be investigated further?")
 
 2. write_report_to_context - Store the report:
-   Takes 4 parameters: summary, root_cause, remediation_steps, recommendations
+   Takes 3 parameters: summary, diagnosis, recommendations
    Automatically extracts commands_executed from context
 
 MANDATORY WORKFLOW:
@@ -227,4 +224,5 @@ agent = ReActAgent(
     llm=llm,
     system_prompt=system_prompt,
     can_handoff_to=["Workflow Coordinator"],
+    early_stopping_method='generate'
 )

@@ -8,8 +8,9 @@ All tools return ToolResult objects with structured data.
 import json
 import subprocess
 
-from configs import LOG_COLLECTION
 from llama_index.core.tools import FunctionTool
+
+from configs import LOG_COLLECTION
 
 from .models import ErrorType, EventType, OpenShiftEvent, OpenShiftEvents, ToolResult
 from .tool_tracker import track_tool_usage

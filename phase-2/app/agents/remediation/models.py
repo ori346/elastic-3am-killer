@@ -139,7 +139,7 @@ class AlertDiagnosticsResult(ToolResult):
         description="Diagnostic information and suggestions"
     )
     logs: List[str] = Field(description="Relevant log entries")
-    remediation_reports: Optional[List[Dict[str, str]]] = Field(
+    remediation_reports: Optional[List[Dict[str, str | list]]] = Field(
         default=None, description="Previous remediation attempts"
     )
 
