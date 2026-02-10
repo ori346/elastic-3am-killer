@@ -11,12 +11,12 @@ import subprocess
 from llama_index.core.tools import FunctionTool
 
 from .models import (
-    DeploymentCondition,
-    DeploymentResources,
     ContainerResources,
-    DeploymentListResult,
-    DeploymentSummary,
+    DeploymentCondition,
     DeploymentDetail,
+    DeploymentListResult,
+    DeploymentResources,
+    DeploymentSummary,
     ErrorType,
     ToolResult,
 )
