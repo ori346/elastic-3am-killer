@@ -54,7 +54,7 @@ def create_agent_card() -> AgentCard:
         description="Autonomous agent for OpenShift cluster alert remediation. Investigates alerts, executes fixes, verifies resolution, and generates concise reports for engineers.",
         url=f"http://{AGENT_HOST}:{PORT}/",
         version="1.0.0",
-        default_input_modes=["text/plain", "application/json"],
+        default_input_modes=["application/json"],
         default_output_modes=["text/markdown", "text/plain"],
         capabilities=AgentCapabilities(streaming=False),
         skills=skills,

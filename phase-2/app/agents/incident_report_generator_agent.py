@@ -26,24 +26,7 @@ async def _get_or_build_context_doc(ctx: Context) -> str:
     state = await ctx.store.get("state")
 
     # Build comprehensive context document with compact JSON to minimize token usage
-    _context_cache = f"""
-CONTEXT DATA:
-
-Alert Name: {state["alert_name"]}
-Namespace: {state["namespace"]}
-
-Alert Diagnostics:
-{state["alert_diagnostics"]}
-
-Remediation Plan:
-{json.dumps(state['remediation_plan'], separators=(',', ':'))}
-
-Commands Execution Results:
-{state['commands_execution_results']}
-
-Execution Success: {state['execution_success']}
-"""
-    return _context_cache
+    return state.model_dump_json(exclude_unset=True, exclude_none=True, indent=2)
 
 
 async def query_context(ctx: Context, query: str) -> str:
@@ -137,7 +120,7 @@ async def write_report_to_context(
 
     # Extract fields from context
     state = await ctx.store.get("state")
-    commands_executed = state["commands_execution_results"]
+    commands_executed = state.commands_execution_results
 
     # Build complete report
     report = {
@@ -150,7 +133,7 @@ async def write_report_to_context(
 
     # Store report in context
     async with ctx.store.edit_state() as ctx_state:
-        ctx_state["state"]["report"] = report
+        ctx_state["state"].report = report
 
     return f"Report stored successfully: {json.dumps(report, indent=2)}. YOU MUST NOW HANDOFF TO 'Workflow Coordinator'."
 

@@ -5,8 +5,8 @@ Orchestrates alert_remediation_specialist and incident_report_generator to handl
 command execution decisions, and report generation.
 """
 
-import json
 import logging
+from typing import Dict, List, Optional
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -20,6 +20,7 @@ from llama_index.core.agent.workflow import (
     ToolCallResult,
 )
 from llama_index.core.workflow import Context
+from pydantic import BaseModel, Field
 
 from .alert_remediation_specialist_agent import agent as alert_remediation_specialist
 from .incident_report_generator_agent import agent as report_generator_agent
@@ -28,63 +29,89 @@ from .workflow_coordinator_agent import agent as workflow_coordinator
 logger = logging.getLogger(__name__)
 
 
+class AlertInfo(BaseModel):
+    """Model for alert information."""
+
+    name: str = Field(description="Name of the alert", default="")
+    severity: str = Field(description="Severity level of the alert", default="")
+    service: str = Field(description="Affected service", default="")
+    description: str = Field(
+        description="Detailed description of the alert", default=""
+    )
+
+
+class RemediationRequest(BaseModel):
+    """Model for remediation request input."""
+
+    incident_id: str = Field(
+        description="Unique identifier for the incident", default=""
+    )
+    namespace: str = Field(description="OpenShift namespace of the alert", default="")
+    alert: AlertInfo = Field(description="Alert information", default=AlertInfo())
+    diagnostics_suggestions: str = Field(
+        description="Diagnostic information and suggestions", default=""
+    )
+    logs: List[str] = Field(description="Relevant log entries", default_factory=list)
+    remediation_reports: Optional[List[Dict[str, str]]] = Field(
+        description="Previous remediation attempts", default=None
+    )
+
+    def __str__(self):
+        return self.model_dump_json(exclude_unset=True, exclude_none=True)
+
+
+class WorkflowState(BaseModel):
+    """State model for the workflow execution."""
+
+    request: RemediationRequest = Field(
+        description="Structured remediation request data"
+    )
+    report: dict[str, str] = Field(
+        description="Generated incident report", default_factory=dict
+    )
+    remediation_plan: dict[str, str] = Field(
+        description="Remediation plan created by Alert Remediation Specialist",
+        default_factory=dict,
+    )
+    commands_execution_results: List[List[str]] = Field(
+        description="Results of executed commands", default_factory=list
+    )
+    execution_success: bool = Field(
+        description="Overall success status of command execution", default=False
+    )
+
+
 class WorkflowAgentExecutor(AgentExecutor):
     """A dummy agent that starts the ReAct agents."""
 
-    def __init__(self):
-        self.agent = self._create_workflow_agent()
-
-    def _create_workflow_agent(self) -> AgentWorkflow:
-        return AgentWorkflow(
-            agents=[
-                workflow_coordinator,
-                alert_remediation_specialist,
-                report_generator_agent,
-            ],
-            root_agent=workflow_coordinator.name,
-            initial_state={
-                "alert_name": "",
-                "namespace": "",
-                "alert_diagnostics": "",
-                "commands_execution_results": [],
-                "alert_status": "",
-                "report": {},
-                "remediation_plan": {},
-            },
-        )
-
-    def _extract_text_from_message(self, message: Message) -> str:
+    def _extract_remediation_request_from_message(
+        self, message: Message
+    ) -> RemediationRequest:
         if not message or not message.parts:
             return "No diagnostics provided"
 
-        text_parts = []
         for part in message.parts:
             if isinstance(part.root, TextPart):
-                text_parts.append(part.root.text)
+                return RemediationRequest.model_validate_strings(part.root.text)
             elif isinstance(part.root, DataPart):
-                text_parts.append(json.dumps(part.root.data, indent=2))
+                return RemediationRequest.model_validate(part.root.data)
 
-        return "\n".join(text_parts) if text_parts else "No diagnostics provided"
-
-    async def _generate_execution_prompt(
-        self, context: RequestContext, retry_count: int
-    ) -> str:
+    # TODO add case where we have a remediation report from a previous execution and we want to continue the remediation process and update the report accordingly - this will be the retry case, we need to make sure that the workflow can handle this case and continue from where it left off instead of starting from scratch
+    async def _generate_execution_prompt(self, retry_count: int) -> str:
         """Generate appropriate prompt based on whether this is a retry or initial execution."""
         if retry_count > 0:
-            return "You failed to generate a report. Please continue from where you stopped and complete the report generation."
+            return "You failed to generate a report. Please continue from where you stopped, complete the alert remediation and the report generation."
         else:
-            alert_diagnostics = self._extract_text_from_message(context.message)
-            return f"""You received this alert information:
-{alert_diagnostics}
-Write all relevant information to the context and don't omit any important detail."""
+            return "It's 3am and you recived alert in OpenShift cluster. Follow your instructions and complete the remdiation workflow."
 
-    async def _execute_workflow_with_streaming(self, prompt: str) -> dict:
+    async def _execute_workflow_with_streaming(
+        self, prompt: str, ctx: Context, agent: AgentWorkflow
+    ) -> dict:
         """Execute a single workflow attempt with event streaming and return final state.
         This method does not handle retries - it performs one execution attempt only."""
         logger.info("Running ReActAgent autonomous workflow...")
 
-        ctx = Context(workflow=self.agent)
-        handler = self.agent.run(prompt, ctx=ctx)
+        handler = agent.run(prompt, ctx=ctx)
 
         current_agent = None
         async for event in handler.stream_events():
@@ -164,7 +191,11 @@ Write all relevant information to the context and don't omit any important detai
         logger.info("Task marked as failed")
 
     async def _execute_with_retry_tracking(
-        self, context: RequestContext, event_queue: EventQueue, updater: TaskUpdater
+        self,
+        event_queue: EventQueue,
+        updater: TaskUpdater,
+        ctx: Context,
+        agent: AgentWorkflow,
     ) -> None:
         """Execute workflow with iterative retry tracking."""
         current_retry = 0
@@ -175,9 +206,11 @@ Write all relevant information to the context and don't omit any important detai
                     f"Retrying workflow execution (attempt {current_retry + 1}/{WORKFLOW.max_retries + 1})"
                 )
 
-            prompt = await self._generate_execution_prompt(context, current_retry)
-            state = await self._execute_workflow_with_streaming(prompt)
-            report = state["report"]
+            prompt = await self._generate_execution_prompt(current_retry)
+            state = await self._execute_workflow_with_streaming(
+                prompt, ctx=ctx, agent=agent
+            )
+            report = state.report
 
             if report:
                 await self._handle_execution_success(report, event_queue, updater)
@@ -194,6 +227,19 @@ Write all relevant information to the context and don't omit any important detai
 
         try:
             logger.debug("Workflow coordinator received alert diagnostics")
+            remediation_request = self._extract_remediation_request_from_message(
+                context.message
+            )
+            agent = AgentWorkflow(
+                agents=[
+                    workflow_coordinator,
+                    alert_remediation_specialist,
+                    report_generator_agent,
+                ],
+                root_agent=workflow_coordinator.name,  # TODO change cordinator to workflow orchestrator and update everywhere else accordingly
+                initial_state=WorkflowState(request=remediation_request),
+            )
+            ctx = Context(workflow=agent)
 
             # Submit task if this is a new task (not a continuation)
             if not context.current_task:
@@ -203,7 +249,9 @@ Write all relevant information to the context and don't omit any important detai
             await updater.start_work()
 
             # Execute the workflow with retry tracking
-            await self._execute_with_retry_tracking(context, event_queue, updater)
+            await self._execute_with_retry_tracking(
+                event_queue, updater, ctx=ctx, agent=agent
+            )
 
         except Exception as e:
             await self._handle_execution_exception(e, event_queue, updater)

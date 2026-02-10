@@ -8,7 +8,7 @@ to shared context for coordination between agents.
 from llama_index.core.tools import FunctionTool
 from llama_index.core.workflow import Context
 
-from .models import AlertDiagnosticsResult, ToolResult, RemediationPlanResult
+from .models import AlertDiagnosticsResult, RemediationPlanResult, ToolResult
 from .tool_tracker import reset_tool_usage_counter
 from .utils import ErrorType, create_error_result
 
@@ -23,68 +23,32 @@ READ_ONLY_OC_COMMANDS = (
 )
 
 
-async def read_alert_diagnostics_data(ctx: Context) -> ToolResult:
+async def read_alert_diagnostics_data(ctx: Context) -> AlertDiagnosticsResult:
     """
     Read alert information from shared context with structured output.
 
     Returns:
         AlertDiagnosticsResult with alert diagnostics dict on success
     """
-    try:
-        state = await ctx.store.get("state")
+    state = await ctx.store.get("state")
+    request_data = state.request
 
-        # Validate essential data exists
-        if not state or not isinstance(state, dict):
-            return create_error_result(
-                error_type=ErrorType.NOT_FOUND,
-                message="No alert diagnostics data found in shared context. Cannot investigate alert without information about the namespace, alert name, status, and diagnostic details.",
-                tool_name="read_alert_diagnostics_data",
-                suggestion="Ensure Workflow Coordinator has stored complete alert information before starting remediation investigation",
-            )
-
-        # Extract alert data with defaults for missing fields
-        namespace = state.get("namespace", "unknown")
-        alert_name = state.get("alert_name", "unknown")
-        alert_diagnostics = state.get("alert_diagnostics", "")
-        alert_status = state.get("alert_status", "unknown")
-        recommendation = state.get("recommendation", "")
-
-        # Validate that we have at least some essential data
-        if (
-            not namespace
-            or namespace == "unknown"
-            and not alert_name
-            or alert_name == "unknown"
-        ):
-            return create_error_result(
-                error_type=ErrorType.NOT_FOUND,
-                message="Alert diagnostics data incomplete - missing critical namespace and alert name. Cannot target remediation efforts without knowing which namespace and specific alert to investigate.",
-                tool_name="read_alert_diagnostics_data",
-                suggestion="Ensure Workflow Coordinator has stored complete alert information including namespace and alert name before starting investigation",
-            )
-
-        # Build diagnostics dict
-        diagnostics_dict = {
-            "namespace": namespace,
-            "alert_name": alert_name,
-            "alert_diagnostics": alert_diagnostics,
-            "alert_status": alert_status,
-            "recommendation": recommendation,
-        }
-
-        return AlertDiagnosticsResult(
-            tool_name="read_alert_diagnostics_data",
-            namespace=namespace if namespace != "unknown" else None,
-            alert_diagnostics=diagnostics_dict,
-        )
-
-    except Exception as e:
+    if not request_data:
         return create_error_result(
-            error_type=ErrorType.UNKNOWN,
-            message=f"Failed to access shared context store for alert diagnostics: {str(e)}. Cannot proceed with remediation investigation without alert information.",
+            error_type=ErrorType.NOT_FOUND,
+            message="No alert diagnostics data found in shared context. Cannot investigate alert without information about the namespace, alert name, status, and diagnostic details.",
             tool_name="read_alert_diagnostics_data",
-            suggestion="Check context store connectivity, verify data format integrity, and ensure Workflow Coordinator has properly initialized the shared context",
+            suggestion="Ensure Workflow Coordinator has stored complete alert information before starting remediation investigation",
         )
+
+    # Extract matching fields from RemediationRequest
+    return AlertDiagnosticsResult(
+        namespace=request_data.namespace,
+        alert=request_data.alert.model_dump(),
+        diagnostics_suggestions=request_data.diagnostics_suggestions,
+        logs=request_data.logs,
+        remediation_reports=request_data.remediation_reports,
+    )
 
 
 async def write_remediation_plan(
@@ -128,7 +92,7 @@ async def write_remediation_plan(
         # Store remediation plan
         plan = {"explanation": explanation, "commands": commands}
         async with ctx.store.edit_state() as ctx_state:
-            ctx_state["state"]["remediation_plan"] = plan
+            ctx_state["state"].remediation_plan = plan
 
         return RemediationPlanResult(
             tool_name="write_remediation_plan",

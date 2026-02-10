@@ -21,11 +21,11 @@ class DiagnosisSender:
         """
         self.workflow_coordinator_url = workflow_coordinator_url
 
-    async def send_diagnosis(self, diagnosis_message: str) -> None:
-        """Send a diagnosis message to the workflow coordinator.
+    async def send_diagnosis_json(self, diagnosis_data: dict) -> None:
+        """Send a JSON diagnosis request to the workflow coordinator.
 
         Args:
-            diagnosis_message: The diagnosis text to send to the workflow coordinator
+            diagnosis_data: The diagnosis JSON data to send to the workflow coordinator
         """
         async with httpx.AsyncClient(timeout=600.0) as http_client:
             # Get workflow coordinator card
@@ -51,12 +51,14 @@ class DiagnosisSender:
             factory = ClientFactory(config=config)
             client = factory.create(card=agent_card)
 
-            # Send message with diagnosis
-            print("\nSending diagnosis to workflow coordinator...")
+            # Send message with JSON diagnosis
+            print(
+                f"\nSending diagnosis for incident {diagnosis_data.get('incident_id', 'unknown')} to workflow coordinator..."
+            )
             message = Message(
                 message_id=str(uuid.uuid4()),
                 role=Role.user,
-                parts=[TextPart(text=diagnosis_message)],
+                parts=[DataPart(data=diagnosis_data)],
             )
 
             # Process response

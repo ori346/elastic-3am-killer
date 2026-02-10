@@ -16,7 +16,7 @@ llm = create_workflow_coordinator_llm(
 async def execute_commands(ctx: Context) -> str:
     """Execute commands from remediation plan. Returns: [[cmd, "Success"/"Failed"], ...]"""
     state = await ctx.store.get("state")
-    commands = state["remediation_plan"]["commands"]
+    commands = state.remediation_plan["commands"]
 
     if not commands:
         return "Commands are not found. Either the Alert Remediation Specialist failed or it needs to be called"
@@ -34,51 +34,13 @@ async def execute_commands(ctx: Context) -> str:
         results.append([cmd, status])
 
     async with ctx.store.edit_state() as ctx_state:
-        ctx_state["state"]["commands_execution_results"] = results
-        ctx_state["state"]["execution_success"] = all_succeeded
+        ctx_state["state"].commands_execution_results = results
+        ctx_state["state"].execution_success = all_succeeded
 
     return f"Executed {len(results)} commands. Success: {all_succeeded}. Results: {results}. Now proceed to Step 3: HANDOFF TO 'Incident Report Generator' - this is MANDATORY."
 
 
-async def store_alert_info(
-    ctx: Context,
-    alert_name: str,
-    namespace: str,
-    alert_diagnostics: str,
-    recommendation: str,
-) -> str:
-    """Store alert information in context for other agents to access.
-
-    Args:
-        alert_name: The name of the alert
-        namespace: The namespace where the alert originated
-        alert_diagnostics: The alert diagnostic text
-        recommendation: Recommended remediation actions for the Alert Remediation Specialist
-    """
-    # Collect all parameters into a dictionary
-    alert_data = {
-        "alert_name": alert_name,
-        "namespace": namespace,
-        "alert_diagnostics": alert_diagnostics,
-        "recommendation": recommendation,
-    }
-
-    async with ctx.store.edit_state() as ctx_state:
-        # Store each field into the context
-        for key, value in alert_data.items():
-            ctx_state["state"][key] = value
-
-    stored_keys = list(alert_data.keys())
-
-    return f"Stored {len(stored_keys)} fields in context: {', '.join(stored_keys)}. NOW YOU MUST HANDOFF TO 'Alert Remediation Specialist' with detailed context - this is MANDATORY."
-
-
-system_prompt = """Remediation workflow orchestrator. Execute steps 0-3 IN ORDER. DO NOT skip ahead.
-
-STEP 0: Call store_alert_info FIRST
-- Input: alert_name (str), namespace (str), alert_diagnostics (str), recommendation (str).
-- Output: Confirmation stored in context
-- The tool will tell you to handoff to Alert Remediation Specialist next
+system_prompt = """Remediation workflow orchestrator. Execute steps 1-3 IN ORDER. DO NOT skip ahead.
 
 STEP 1: Handoff to Alert Remediation Specialist for investigation and planning
 - MANDATORY: Use handoff tool with to_agent="Alert Remediation Specialist"
@@ -119,13 +81,13 @@ CRITICAL RULES:
 - After EVERY handoff, WAIT for agent to return before proceeding
 - Step 1 handoff to Alert Remediation Specialist is MANDATORY - don't skip it
 - Step 3 handoff to Report Generator is MANDATORY - don't skip it
-- If you already did Step 0, proceed to Step 1 (don't repeat Step 0)
+- Start directly with Step 1 (context is already populated from JSON input)
 - Always proceed to Step 3 after Step 2 (regardless of execution success/failure)
 
 HANDOFF CONTEXT REQUIREMENTS:
 - ALWAYS include specific alert information from stored context in handoff reasons
-- You have access to stored context data: alert_name, namespace, alert_diagnostics, recommendation
-- For Step 1: Build reason like: "Investigate [alert_name] alert in namespace '[namespace]'. Issue: [brief description from alert_diagnostics]. Focus on: [key areas from recommendation]. Analyze cluster state and create remediation commands."
+- You have access to stored context data: diagnosis_request with incident_id, namespace, alert info, diagnostics_suggestions
+- For Step 1: Build reason like: "Investigate [alert.name] alert in namespace '[namespace]'. Issue: [brief description from diagnostics_suggestions]. Analyze cluster state and create remediation commands."
 - For Step 3: Build reason like: "Generate report for [alert_name] alert in namespace '[namespace]'. Executed [X] commands with [SUCCESS/FAILED] outcome. Commands attempted: [brief summary]. Create comprehensive incident report."
 - Use handoff(to_agent="Agent Name", reason="Your crafted detailed context here...")
 - NEVER use generic reasons like "analyze alert" or "generate report"
@@ -134,24 +96,6 @@ HANDOFF CONTEXT REQUIREMENTS:
 
 
 tools = [
-    FunctionTool.from_defaults(
-        fn=store_alert_info,
-        name="store_alert_info",
-        description="""Store alert information in shared context for other agents to access.
-
-        Purpose: Initialize the remediation workflow by storing alert information.
-
-        Required Inputs:
-        - alert_name (str): The name of the alert from the monitoring system (e.g., "HighMemoryUsage")
-        - namespace (str): The OpenShift namespace where the alert originated (e.g., "integration-test-ofridman")
-        - alert_diagnostics (str): The diagnostic text describing the alert details and context
-        - recommendation (str): Recommended remediation actions for the Alert Remediation Specialist
-
-        Returns: Confirmation message with list of fields stored in context
-
-        When to call: FIRST in Step 0, before any other operations
-        """,
-    ),
     FunctionTool.from_defaults(
         fn=execute_commands,
         name="execute_commands",

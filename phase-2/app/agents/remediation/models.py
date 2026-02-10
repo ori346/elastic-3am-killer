@@ -131,8 +131,16 @@ class LogEntry(BaseModel):
 class AlertDiagnosticsResult(ToolResult):
     """Result of reading alert diagnostics from context"""
 
-    alert_diagnostics: Dict[str, str] = Field(
-        description="Alert diagnostic information"
+    tool_name: str = Field(
+        default="read_alert_diagnostics_data", description="Name of the tool"
+    )
+    alert: Dict[str, str] = Field(description="Alert information")
+    diagnostics_suggestions: str = Field(
+        description="Diagnostic information and suggestions"
+    )
+    logs: List[str] = Field(description="Relevant log entries")
+    remediation_reports: Optional[List[Dict[str, str]]] = Field(
+        default=None, description="Previous remediation attempts"
     )
 
 
