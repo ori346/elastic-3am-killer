@@ -24,7 +24,7 @@ async def _get_or_build_context_doc(ctx: Context) -> str:
     """Get cached context document or build it if not cached."""
     global _context_cache
 
-    if not _context_cache:
+    if _context_cache is None:
         state = await ctx.store.get("state")
         _context_cache = state.model_dump_json(
             exclude_unset=True, exclude_none=True, indent=2
@@ -105,8 +105,7 @@ async def write_report_to_context(
 
     Args:
         summary: Brief summary of incident and remediation (2-3 sentences)
-        root_cause: Root cause analysis of the issue
-        remediation_steps: Description of steps taken
+        diagnosis: Root cause analysis of the issue
         recommendations: Recommendations to prevent recurrence
 
     Returns:
@@ -125,7 +124,6 @@ async def write_report_to_context(
     # Build complete report
     report = Report(
         incident_id=state.request.incident_id,
-        alert_name=state.request.alert.name,
         diagnosis=diagnosis,
         summary=summary,
         recommendations=recommendations,
@@ -161,13 +159,12 @@ tools = [
         name="write_report_to_context",
         description="""Write the final report to context.
 
-        This function takes 4 string parameters and automatically extracts
+        This function takes 3 string parameters and automatically extracts
         commands_executed from context to build the complete report.
 
         MANDATORY parameters:
         - summary (str): 2-3 sentence summary of incident and remediation
-        - root_cause (str): Root cause analysis
-        - remediation_steps (str): Description of steps taken
+        - diagnosis (str): Root cause analysis
         - recommendations (str): Prevention recommendations
 
         After calling this, MUST handoff to 'Workflow Coordinator'.
@@ -197,23 +194,21 @@ YOUR TOOLS:
 
 MANDATORY WORKFLOW:
 1. Use query_context to get summary
-2. Use query_context to get root_cause
-3. Use query_context to get remediation_steps
-4. Use query_context to get recommendations
-5. Call write_report_to_context with the 4 fields (commands_executed is auto-extracted)
-6. IMMEDIATELY handoff to "Workflow Coordinator"
+2. Use query_context to get diagnosis
+3. Use query_context to get recommendations
+4. Call write_report_to_context with the 3 fields (commands_executed is auto-extracted)
+5. IMMEDIATELY handoff to "Workflow Coordinator"
 
 EXAMPLE WORKFLOW:
 1. query_context("Provide a 2-3 sentence summary...") → get summary
-2. query_context("What was the root cause?") → get root_cause
-3. query_context("What steps were taken?") → get remediation_steps
-4. query_context("What recommendations...") → get recommendations
-5. write_report_to_context(summary, root_cause, remediation_steps, recommendations) → stores complete report
-6. handoff(to_agent="Workflow Coordinator", reason="Report completed")
+2. query_context("What was the root cause of this issue?") → get diagnosis
+3. query_context("What recommendations...") → get recommendations
+4. write_report_to_context(summary, diagnosis, recommendations) → stores complete report
+5. handoff(to_agent="Workflow Coordinator", reason="Report completed")
 
 CRITICAL RULES:
-- Use query_context to get the 4 interpreted fields
-- Call write_report_to_context with exactly 4 string parameters
+- Use query_context to get the 3 interpreted fields
+- Call write_report_to_context with exactly 3 string parameters
 - ALWAYS handoff after write_report_to_context
 - DO NOT answer with text - only use tools"""
 
